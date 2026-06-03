@@ -115,6 +115,16 @@ const particleRenderer = new ParticleRenderer({
 });
 
 // ------------------------------------------------------------
+// Debug panel
+// ------------------------------------------------------------
+
+const debugPanel = document.getElementById("debug-panel");
+
+let frameCounter = 0;
+let fpsTimer = 0;
+let displayedFps = 0;
+
+// ------------------------------------------------------------
 // GUI
 // ------------------------------------------------------------
 
@@ -141,6 +151,76 @@ const guiSettings = {
 };
 
 const gui = new GUI();
+
+/*
+const presets = {
+    stable: () => {
+        solver.h = 0.12;
+        solver.mass = 0.02;
+        solver.restDensity = 35.0;
+        solver.stiffness = 5.0;
+        solver.gamma = 7.0;
+        solver.viscosity = 0.08;
+        solver.gravity = -9.81;
+        solver.fixedDt = 1.0 / 120.0;
+        solver.substeps = 2;
+        solver.globalDamping = 0.998;
+        solver.bounce = 0.35;
+        solver.wallDamping = 0.85;
+
+        solver.updateKernelConstants();
+        solver.reset();
+        particleRenderer.update();
+        gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
+    },
+
+    energetic: () => {
+        solver.h = 0.13;
+        solver.mass = 0.02;
+        solver.restDensity = 25.0;
+        solver.stiffness = 8.0;
+        solver.gamma = 7.0;
+        solver.viscosity = 0.02;
+        solver.gravity = -9.81;
+        solver.fixedDt = 1.0 / 120.0;
+        solver.substeps = 2;
+        solver.globalDamping = 0.997;
+        solver.bounce = 0.85;
+        solver.wallDamping = 0.85;
+
+        solver.updateKernelConstants();
+        solver.reset();
+        particleRenderer.update();
+        gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
+    },
+
+    viscous: () => {
+        solver.h = 0.14;
+        solver.mass = 0.025;
+        solver.restDensity = 35.0;
+        solver.stiffness = 4.0;
+        solver.gamma = 6.0;
+        solver.viscosity = 0.25;
+        solver.gravity = -9.81;
+        solver.fixedDt = 1.0 / 120.0;
+        solver.substeps = 2;
+        solver.globalDamping = 0.995;
+        solver.bounce = 0.2;
+        solver.wallDamping = 0.7;
+
+        solver.updateKernelConstants();
+        solver.reset();
+        particleRenderer.update();
+        gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
+    }
+};
+
+const presetFolder = gui.addFolder("Presets");
+presetFolder.add(presets, "stable").name("Stable Water");
+presetFolder.add(presets, "energetic").name("Energetic");
+presetFolder.add(presets, "viscous").name("Viscous");
+presetFolder.open();
+*/
 
 const sphFolder = gui.addFolder("SPH");
 sphFolder
@@ -235,6 +315,8 @@ collisionFolder
 
 gui.add(guiSettings, "reset").name("Reset Simulation");
 
+
+
 // ------------------------------------------------------------
 // Input
 // ------------------------------------------------------------
@@ -261,17 +343,44 @@ window.addEventListener("resize", () => {
 // Main loop
 // ------------------------------------------------------------
 
-function animate() {
+let previousTime = performance.now();
+
+function animate(currentTime) {
     requestAnimationFrame(animate);
 
+    // Debugger FPS update
+    const deltaSeconds = (currentTime - previousTime) * 0.001;
+    previousTime = currentTime;
+
+    frameCounter++;
+    fpsTimer += deltaSeconds;
+
+    if (fpsTimer >= 0.25) {
+        displayedFps = Math.round(frameCounter / fpsTimer);
+        frameCounter = 0;
+        fpsTimer = 0;
+    }
+
+
+    // Solver Update
     for (let i = 0; i < solver.substeps; i++) {
         solver.step(solver.fixedDt / solver.substeps);
     }
 
+    // Renderer update
     particleRenderer.update();
+
+    debugPanel.innerHTML = `
+        Particles: ${solver.numParticles}<br>
+        FPS: ${displayedFps}<br>
+        Substeps: ${solver.substeps}<br>
+        h: ${solver.h.toFixed(3)}<br>
+        stiffness: ${solver.stiffness.toFixed(2)}<br>
+        viscosity: ${solver.viscosity.toFixed(3)}
+    `;
 
     controls.update();
     renderer.render(scene, camera);
 }
 
-animate();
+requestAnimationFrame(animate);

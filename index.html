@@ -8,18 +8,19 @@
 </head>
 
 <body>
-<canvas id="webgl-canvas"></canvas>
+    <canvas id="webgl-canvas"></canvas>
+    <div id="debug-panel"></div>
 
-<script type="importmap">
-    {
-        "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/",
-            "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.21/+esm"
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/",
+                "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.21/+esm"
+            }
         }
-    }
-</script>
+    </script>
 
-<script type="module" src="./main.js"></script>
+    <script type="module" src="./main.js"></script>
 </body>
 </html>

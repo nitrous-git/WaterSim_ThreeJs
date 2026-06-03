@@ -6,9 +6,9 @@ import { SpatialHashGrid3D } from "./SpatialHashGrid3D.js";
 
 export class SPHSolver {
     constructor(options = {}) {
-        this.countX = options.countX ?? 11;
+        this.countX = options.countX ?? 10;
         this.countY = options.countY ?? 14;
-        this.countZ = options.countZ ?? 11;
+        this.countZ = options.countZ ?? 10;
 
         this.numParticles = this.countX * this.countY * this.countZ;
 

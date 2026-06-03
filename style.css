@@ -11,3 +11,18 @@ body {
     width: 100vw;
     height: 100vh;
 }
+
+#debug-panel {
+    position: fixed;
+    left: 12px;
+    top: 12px;
+    color: #bfefff;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 8px 10px;
+    border: 1px solid rgba(120, 200, 255, 0.25);
+    border-radius: 6px;
+    pointer-events: none;
+}
