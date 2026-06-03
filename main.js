@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import GUI from "lil-gui";
 
 import { SPHSolver } from "./SPHSolver.js";
 import { ParticleRenderer } from "./ParticleRenderer.js";
@@ -112,6 +113,127 @@ const particleRenderer = new ParticleRenderer({
     particleCount: solver.numParticles,
     particleRadius: solver.particleRadius
 });
+
+// ------------------------------------------------------------
+// GUI
+// ------------------------------------------------------------
+
+const guiSettings = {
+    h: solver.h,
+    mass: solver.mass,
+    restDensity: solver.restDensity,
+    stiffness: solver.stiffness,
+    gamma: solver.gamma,
+    viscosity: solver.viscosity,
+    gravity: solver.gravity,
+
+    fixedDt: solver.fixedDt,
+    substeps: solver.substeps,
+
+    bounce: solver.bounce,
+    wallDamping: solver.wallDamping,
+    globalDamping: solver.globalDamping,
+
+    reset: () => {
+        solver.reset();
+        particleRenderer.update();
+    }
+};
+
+const gui = new GUI();
+
+const sphFolder = gui.addFolder("SPH");
+sphFolder
+    .add(guiSettings, "h", 0.06, 0.25, 0.005)
+    .name("Smoothing h")
+    .onChange((value) => {
+        solver.setSmoothingLength(value);
+    });
+
+sphFolder
+    .add(guiSettings, "mass", 0.001, 0.1, 0.001)
+    .name("Mass")
+    .onChange((value) => {
+        solver.mass = value;
+    });
+
+sphFolder
+    .add(guiSettings, "restDensity", 1.0, 200.0, 1.0)
+    .name("Rest Density")
+    .onChange((value) => {
+        solver.restDensity = value;
+    });
+
+sphFolder
+    .add(guiSettings, "stiffness", 0.1, 100.0, 0.1)
+    .name("Stiffness")
+    .onChange((value) => {
+        solver.stiffness = value;
+    });
+
+sphFolder
+    .add(guiSettings, "gamma", 1.0, 10.0, 0.1)
+    .name("Gamma")
+    .onChange((value) => {
+        solver.gamma = value;
+    });
+
+sphFolder
+    .add(guiSettings, "viscosity", 0.0, 2.0, 0.01)
+    .name("Viscosity")
+    .onChange((value) => {
+        solver.viscosity = value;
+    });
+
+sphFolder
+    .add(guiSettings, "gravity", -30.0, 10.0, 0.1)
+    .name("Gravity")
+    .onChange((value) => {
+        solver.gravity = value;
+    });
+
+sphFolder.open();
+
+const integrationFolder = gui.addFolder("Integration");
+
+integrationFolder
+    .add(guiSettings, "fixedDt", 1.0 / 240.0, 1.0 / 30.0, 0.0005)
+    .name("Fixed dt")
+    .onChange((value) => {
+        solver.fixedDt = value;
+    });
+
+integrationFolder
+    .add(guiSettings, "substeps", 1, 8, 1)
+    .name("Substeps")
+    .onChange((value) => {
+        solver.substeps = value;
+    });
+
+const collisionFolder = gui.addFolder("Collision");
+
+collisionFolder
+    .add(guiSettings, "bounce", 0.0, 1.0, 0.01)
+    .name("Bounce")
+    .onChange((value) => {
+        solver.bounce = value;
+    });
+
+collisionFolder
+    .add(guiSettings, "wallDamping", 0.0, 1.0, 0.01)
+    .name("Wall Damping")
+    .onChange((value) => {
+        solver.wallDamping = value;
+    });
+
+collisionFolder
+    .add(guiSettings, "globalDamping", 0.9, 1.0, 0.001)
+    .name("Global Damping")
+    .onChange((value) => {
+        solver.globalDamping = value;
+    });
+
+gui.add(guiSettings, "reset").name("Reset Simulation");
 
 // ------------------------------------------------------------
 // Input

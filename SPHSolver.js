@@ -59,6 +59,11 @@ export class SPHSolver {
         this.grid.setCellSize(this.h);
     }
 
+    setSmoothingLength(value) {
+        this.h = value;
+        this.updateKernelConstants();
+    }
+
     reset() {
         let index = 0;
 
