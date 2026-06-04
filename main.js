@@ -4,6 +4,7 @@ import GUI from "lil-gui";
 
 import { SPHSolver } from "./SPHSolver.js";
 import { ParticleRenderer } from "./ParticleRenderer.js";
+import { ScreenSpaceFluidRenderer  } from "./ScreenSpaceFluidRenderer.js";
 
 // ------------------------------------------------------------
 // Scene setup
@@ -31,6 +32,19 @@ const renderer = new THREE.WebGLRenderer({
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+// Mouse Raycaster
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+
+const pointerState = {
+    isDown: false,
+    hasMoved: false
+};
+
+const interactionState = {
+    waterInteraction: false
+};
 
 // ------------------------------------------------------------
 // Controls
@@ -81,25 +95,25 @@ function createContainerBox(scene, min, max) {
 // ------------------------------------------------------------
 
 const solver = new SPHSolver({
-    countX: 11,
-    countY: 14,
-    countZ: 11,
+    countX: 12,
+    countY: 16,
+    countZ: 12,
 
     boxMin,
     boxMax,
 
     h: 0.13,
-    mass: 0.02,
-    restDensity: 25.0,
+    mass: 0.039,
+    restDensity: 73.0,
     stiffness: 8.0,
     gamma: 7.0,
     viscosity: 0.02,
     gravity: -9.81,
 
     fixedDt: 1.0 / 120.0,
-    substeps: 2,
+    substeps: 1,
 
-    particleRadius: 0.025,
+    particleRadius: 0.025,  // 0.09 could also work
     bounce: 0.85,
     wallDamping: 0.85,
     globalDamping: 0.998
@@ -112,6 +126,21 @@ const particleRenderer = new ParticleRenderer({
     positions: solver.positions,
     particleCount: solver.numParticles,
     particleRadius: solver.particleRadius
+});
+
+const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
+    positions: solver.positions,
+    particleCount: solver.numParticles,
+
+    // Use a visual radius larger than the physics radius
+    // so the projected particles overlap into a surface.
+    particleRadius: solver.h * 0.45,
+
+    width: window.innerWidth,
+    height: window.innerHeight,
+    pixelRatio: renderer.getPixelRatio(),
+
+    blurIterations: 10
 });
 
 // ------------------------------------------------------------
@@ -222,6 +251,31 @@ presetFolder.add(presets, "viscous").name("Viscous");
 presetFolder.open();
 */
 
+const renderSettings = {
+    mode: "Screen-Space Fluid"
+};
+
+const renderModes = [
+    "Water Particles",
+    "Screen-Space Fluid"
+];
+
+gui
+    .add(renderSettings, "mode", renderModes)
+    .name("Render Mode")
+    .onChange(updateRenderMode);
+
+function updateRenderMode() {
+    const useParticleRenderer =
+        renderSettings.mode === "Water Particles";
+
+    particleRenderer.setEnabled(useParticleRenderer);
+}
+
+updateRenderMode();
+
+gui.add(guiSettings, "reset").name("Reset Simulation");
+
 const sphFolder = gui.addFolder("SPH");
 sphFolder
     .add(guiSettings, "h", 0.06, 0.25, 0.005)
@@ -272,7 +326,7 @@ sphFolder
         solver.gravity = value;
     });
 
-sphFolder.open();
+sphFolder.close();
 
 const integrationFolder = gui.addFolder("Integration");
 
@@ -289,6 +343,8 @@ integrationFolder
     .onChange((value) => {
         solver.substeps = value;
     });
+
+integrationFolder.close();
 
 const collisionFolder = gui.addFolder("Collision");
 
@@ -313,8 +369,107 @@ collisionFolder
         solver.globalDamping = value;
     });
 
-gui.add(guiSettings, "reset").name("Reset Simulation");
+collisionFolder.close();
 
+
+// screen-space fluid GUI controls
+// --------------------------------------
+const screenSpaceFolder =
+    gui.addFolder("Screen-Space Fluid");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer,
+        "blurIterations",
+        1,
+        10,
+        1
+    )
+    .name("Blur Iterations");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.blurMaterial.uniforms.uDepthThreshold,
+        "value",
+        0.01,
+        0.5,
+        0.01
+    )
+    .name("Depth Threshold");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uOpacity,
+        "value",
+        0.0,
+        1.0,
+        0.01
+    )
+    .name("Water Opacity");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uRefractionStrength,
+        "value",
+        0.0,
+        0.05,
+        0.001
+    )
+    .name("Refraction");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uFresnelStrength,
+        "value",
+        0.0,
+        2.0,
+        0.05
+    )
+    .name("Fresnel");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uSpecularStrength,
+        "value",
+        0.0,
+        2.0,
+        0.05
+    )
+    .name("Specular");
+
+screenSpaceFolder.close();
+
+// fluid mouse interaction GUI controls
+// --------------------------------------
+const interactionFolder = gui.addFolder("Mouse Interaction");
+
+interactionFolder
+    .add(interactionState, "waterInteraction")
+    .name("Enable Interaction")
+    .onChange((enabled) => {
+        controls.enabled = !enabled;
+
+        pointerState.isDown = false;
+        pointerState.hasMoved = false;
+
+        solver.setMouseForceRay(
+            false,
+            raycaster.ray.origin,
+            raycaster.ray.direction
+        );
+
+        renderer.domElement.style.cursor = enabled ? "crosshair" : "grab";
+    });
+
+interactionFolder
+    .add(solver, "mouseForceRadius", 0.05, 0.5, 0.01)
+    .name("Radius");
+
+interactionFolder
+    .add(solver, "mouseForceStrength", -150.0, 150.0, 1.0)
+    .name("Strength");
+
+interactionFolder.open();
 
 
 // ------------------------------------------------------------
@@ -328,6 +483,58 @@ window.addEventListener("keydown", (event) => {
     }
 });
 
+function updateMouseNDC(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+
+    mouseNDC.x = ((event.clientX - rect.left) / rect.width) * 2.0 - 1.0;
+    mouseNDC.y = -((event.clientY - rect.top) / rect.height) * 2.0 + 1.0;
+
+    pointerState.hasMoved = true;
+}
+
+function updateMouseForceRay() {
+    if (!interactionState.waterInteraction || !pointerState.hasMoved) {
+        solver.setMouseForceRay(false, raycaster.ray.origin, raycaster.ray.direction);
+        return;
+    }
+
+    raycaster.setFromCamera(mouseNDC, camera);
+
+    solver.setMouseForceRay(
+        pointerState.isDown,
+        raycaster.ray.origin,
+        raycaster.ray.direction
+    );
+}
+
+window.addEventListener("pointermove", (event) => {
+    if (!interactionState.waterInteraction) {
+        return;
+    }
+
+    updateMouseNDC(event);
+});
+
+window.addEventListener("pointerdown", (event) => {
+    if (!interactionState.waterInteraction || event.button !== 0) {
+        return;
+    }
+
+    pointerState.isDown = true;
+    updateMouseNDC(event);
+    updateMouseForceRay();
+});
+
+window.addEventListener("pointerup", () => {
+    pointerState.isDown = false;
+    updateMouseForceRay();
+});
+
+window.addEventListener("pointerleave", () => {
+    pointerState.isDown = false;
+    updateMouseForceRay();
+});
+
 // ------------------------------------------------------------
 // Resize
 // ------------------------------------------------------------
@@ -337,6 +544,10 @@ window.addEventListener("resize", () => {
     camera.updateProjectionMatrix();
 
     renderer.setSize(window.innerWidth, window.innerHeight);
+
+    particleRenderer.setResolution(window.innerWidth, window.innerHeight);
+
+    screenSpaceFluidRenderer.setResolution(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
 });
 
 // ------------------------------------------------------------
@@ -361,6 +572,7 @@ function animate(currentTime) {
         fpsTimer = 0;
     }
 
+    updateMouseForceRay();
 
     // Solver Update
     for (let i = 0; i < solver.substeps; i++) {
@@ -368,7 +580,8 @@ function animate(currentTime) {
     }
 
     // Renderer update
-    particleRenderer.update();
+    particleRenderer.update(currentTime * 0.001);
+    screenSpaceFluidRenderer.update();
 
     debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
@@ -379,8 +592,21 @@ function animate(currentTime) {
         viscosity: ${solver.viscosity.toFixed(3)}
     `;
 
+    // Controls update
     controls.update();
-    renderer.render(scene, camera);
+
+    if (renderSettings.mode === "Water Particles") {
+        renderer.setRenderTarget(null);
+        renderer.render(scene, camera);
+    } else {
+        screenSpaceFluidRenderer.render(
+            renderer,
+            scene,
+            camera
+        );
+    }
+
+    //renderer.render(scene, camera);
 }
 
 requestAnimationFrame(animate);

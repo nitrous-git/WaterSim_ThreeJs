@@ -17,8 +17,8 @@ export class SPHSolver {
 
         // SPH parameters
         this.h = options.h ?? 0.13;
-        this.mass = options.mass ?? 0.02;
-        this.restDensity = options.restDensity ?? 25.0;
+        this.mass = options.mass ?? 0.039;
+        this.restDensity = options.restDensity ?? 73.0;
         this.stiffness = options.stiffness ?? 8.0;
         this.gamma = options.gamma ?? 7.0;
         this.viscosity = options.viscosity ?? 0.02;
@@ -26,15 +26,23 @@ export class SPHSolver {
 
         // Integration / collision parameters
         this.fixedDt = options.fixedDt ?? 1.0 / 120.0;
-        this.substeps = options.substeps ?? 2;
+        this.substeps = options.substeps ?? 1;
 
         this.particleRadius = options.particleRadius ?? 0.025;
         this.bounce = options.bounce ?? 0.85;
         this.wallDamping = options.wallDamping ?? 0.85;
         this.globalDamping = options.globalDamping ?? 0.998;
 
-        this.initialSpacing = options.initialSpacing ?? 0.08;
+        this.initialSpacing = options.initialSpacing ?? 0.07;
         this.initialHeight = options.initialHeight ?? 0.65;
+
+        // Mouse / pointer interaction
+        this.mouseForceActive = false;
+        this.mouseForceRadius = options.mouseForceRadius ?? 0.40;
+        this.mouseForceStrength = options.mouseForceStrength ?? 96.0;
+
+        this.mouseRayOrigin = { x: 0.0, y: 0.0, z: 0.0 };
+        this.mouseRayDirection = { x: 0.0, y: 0.0, z: -1.0 };
 
         // Particle arrays
         this.positions = new Float32Array(this.numParticles * 3);
@@ -110,6 +118,11 @@ export class SPHSolver {
         // Compute SPH state
         this.computeDensityAndPressure();
         this.computeForces();
+
+        // Add external mouse force
+        // We call applyMouseForce() after computeForces() and before integrateEuler(dt)
+        // That way the mouse simply adds extra acceleration into the current frame
+        this.applyMouseForce();
 
         // Simple semi-implicit Euler
         this.integrateEuler(dt);
@@ -314,5 +327,93 @@ export class SPHSolver {
         this.velocities[base] = vx;
         this.velocities[base + 1] = vy;
         this.velocities[base + 2] = vz;
+    }
+
+    // Mouse Interaction
+    // ------------------------------------------------------------
+
+    setMouseForceRay(active, origin, direction) {
+        this.mouseForceActive = active;
+
+        this.mouseRayOrigin.x = origin.x;
+        this.mouseRayOrigin.y = origin.y;
+        this.mouseRayOrigin.z = origin.z;
+
+        const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+
+        if (len > 0.000001) {
+            this.mouseRayDirection.x = direction.x / len;
+            this.mouseRayDirection.y = direction.y / len;
+            this.mouseRayDirection.z = direction.z / len;
+        }
+    }
+
+    applyMouseForce() {
+        if (!this.mouseForceActive) {
+            return;
+        }
+
+        const ox = this.mouseRayOrigin.x;
+        const oy = this.mouseRayOrigin.y;
+        const oz = this.mouseRayOrigin.z;
+
+        const dx = this.mouseRayDirection.x;
+        const dy = this.mouseRayDirection.y;
+        const dz = this.mouseRayDirection.z;
+
+        const radius = this.mouseForceRadius;
+        const radius2 = radius * radius;
+
+        for (let i = 0; i < this.numParticles; i++) {
+            const base = i * 3;
+
+            const px = this.positions[base];
+            const py = this.positions[base + 1];
+            const pz = this.positions[base + 2];
+
+            // Vector from ray origin to particle
+            const vx = px - ox;
+            const vy = py - oy;
+            const vz = pz - oz;
+
+            // Projection distance along ray
+            const t = vx * dx + vy * dy + vz * dz;
+
+            // Ignore particles behind the camera ray
+            if (t < 0.0) {
+                continue;
+            }
+
+            // Closest point on ray to particle
+            const cx = ox + dx * t;
+            const cy = oy + dy * t;
+            const cz = oz + dz * t;
+
+            // Vector from ray to particle
+            const rx = px - cx;
+            const ry = py - cy;
+            const rz = pz - cz;
+
+            const dist2 = rx * rx + ry * ry + rz * rz;
+
+            if (dist2 > radius2 || dist2 < 0.000001) {
+                continue;
+            }
+
+            const dist = Math.sqrt(dist2);
+
+            const nx = rx / dist;
+            const ny = ry / dist;
+            const nz = rz / dist;
+
+            const q = 1.0 - dist / radius;
+            const falloff = q * q;
+
+            const force = this.mouseForceStrength * falloff;
+
+            this.accelerations[base] += nx * force;
+            this.accelerations[base + 1] += ny * force;
+            this.accelerations[base + 2] += nz * force;
+        }
     }
 }
