@@ -32,6 +32,19 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
+// Mouse Raycaster
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+
+const pointerState = {
+    isDown: false,
+    hasMoved: false
+};
+
+const interactionState = {
+    waterInteraction: false
+};
+
 // ------------------------------------------------------------
 // Controls
 // ------------------------------------------------------------
@@ -315,6 +328,35 @@ collisionFolder
 
 gui.add(guiSettings, "reset").name("Reset Simulation");
 
+const interactionFolder = gui.addFolder("Mouse Interaction");
+
+interactionFolder
+    .add(interactionState, "waterInteraction")
+    .name("Enable Interaction")
+    .onChange((enabled) => {
+        controls.enabled = !enabled;
+
+        pointerState.isDown = false;
+        pointerState.hasMoved = false;
+
+        solver.setMouseForceRay(
+            false,
+            raycaster.ray.origin,
+            raycaster.ray.direction
+        );
+
+        renderer.domElement.style.cursor = enabled ? "crosshair" : "grab";
+    });
+
+interactionFolder
+    .add(solver, "mouseForceRadius", 0.05, 0.5, 0.01)
+    .name("Radius");
+
+interactionFolder
+    .add(solver, "mouseForceStrength", -150.0, 150.0, 1.0)
+    .name("Strength");
+
+interactionFolder.open();
 
 
 // ------------------------------------------------------------
@@ -326,6 +368,58 @@ window.addEventListener("keydown", (event) => {
         solver.reset();
         particleRenderer.update();
     }
+});
+
+function updateMouseNDC(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+
+    mouseNDC.x = ((event.clientX - rect.left) / rect.width) * 2.0 - 1.0;
+    mouseNDC.y = -((event.clientY - rect.top) / rect.height) * 2.0 + 1.0;
+
+    pointerState.hasMoved = true;
+}
+
+function updateMouseForceRay() {
+    if (!interactionState.waterInteraction || !pointerState.hasMoved) {
+        solver.setMouseForceRay(false, raycaster.ray.origin, raycaster.ray.direction);
+        return;
+    }
+
+    raycaster.setFromCamera(mouseNDC, camera);
+
+    solver.setMouseForceRay(
+        pointerState.isDown,
+        raycaster.ray.origin,
+        raycaster.ray.direction
+    );
+}
+
+window.addEventListener("pointermove", (event) => {
+    if (!interactionState.waterInteraction) {
+        return;
+    }
+
+    updateMouseNDC(event);
+});
+
+window.addEventListener("pointerdown", (event) => {
+    if (!interactionState.waterInteraction || event.button !== 0) {
+        return;
+    }
+
+    pointerState.isDown = true;
+    updateMouseNDC(event);
+    updateMouseForceRay();
+});
+
+window.addEventListener("pointerup", () => {
+    pointerState.isDown = false;
+    updateMouseForceRay();
+});
+
+window.addEventListener("pointerleave", () => {
+    pointerState.isDown = false;
+    updateMouseForceRay();
 });
 
 // ------------------------------------------------------------
@@ -363,6 +457,7 @@ function animate(currentTime) {
         fpsTimer = 0;
     }
 
+    updateMouseForceRay();
 
     // Solver Update
     for (let i = 0; i < solver.substeps; i++) {
