@@ -4,6 +4,7 @@ import GUI from "lil-gui";
 
 import { SPHSolver } from "./SPHSolver.js";
 import { ParticleRenderer } from "./ParticleRenderer.js";
+import { ScreenSpaceFluidRenderer  } from "./ScreenSpaceFluidRenderer.js";
 
 // ------------------------------------------------------------
 // Scene setup
@@ -112,7 +113,7 @@ const solver = new SPHSolver({
     fixedDt: 1.0 / 120.0,
     substeps: 2,
 
-    particleRadius: 0.025,
+    particleRadius: 0.025,  // 0.09 is good
     bounce: 0.85,
     wallDamping: 0.85,
     globalDamping: 0.998
@@ -125,6 +126,21 @@ const particleRenderer = new ParticleRenderer({
     positions: solver.positions,
     particleCount: solver.numParticles,
     particleRadius: solver.particleRadius
+});
+
+const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
+    positions: solver.positions,
+    particleCount: solver.numParticles,
+
+    // Use a visual radius larger than the physics radius
+    // so the projected particles overlap into a surface.
+    particleRadius: solver.h * 0.45,
+
+    width: window.innerWidth,
+    height: window.innerHeight,
+    pixelRatio: renderer.getPixelRatio(),
+
+    blurIterations: 4
 });
 
 // ------------------------------------------------------------
@@ -235,6 +251,31 @@ presetFolder.add(presets, "viscous").name("Viscous");
 presetFolder.open();
 */
 
+const renderSettings = {
+    mode: "Screen-Space Fluid"
+};
+
+const renderModes = [
+    "Water Particles",
+    "Screen-Space Fluid"
+];
+
+gui
+    .add(renderSettings, "mode", renderModes)
+    .name("Render Mode")
+    .onChange(updateRenderMode);
+
+function updateRenderMode() {
+    const useParticleRenderer =
+        renderSettings.mode === "Water Particles";
+
+    particleRenderer.setEnabled(useParticleRenderer);
+}
+
+updateRenderMode();
+
+gui.add(guiSettings, "reset").name("Reset Simulation");
+
 const sphFolder = gui.addFolder("SPH");
 sphFolder
     .add(guiSettings, "h", 0.06, 0.25, 0.005)
@@ -285,7 +326,7 @@ sphFolder
         solver.gravity = value;
     });
 
-sphFolder.open();
+sphFolder.close();
 
 const integrationFolder = gui.addFolder("Integration");
 
@@ -328,10 +369,78 @@ collisionFolder
         solver.globalDamping = value;
     });
 
-gui.add(guiSettings, "reset").name("Reset Simulation");
-
 collisionFolder.close();
 
+
+// screen-space fluid GUI controls
+// --------------------------------------
+const screenSpaceFolder =
+    gui.addFolder("Screen-Space Fluid");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer,
+        "blurIterations",
+        1,
+        10,
+        1
+    )
+    .name("Blur Iterations");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.blurMaterial.uniforms.uDepthThreshold,
+        "value",
+        0.01,
+        0.5,
+        0.01
+    )
+    .name("Depth Threshold");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uOpacity,
+        "value",
+        0.0,
+        1.0,
+        0.01
+    )
+    .name("Water Opacity");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uRefractionStrength,
+        "value",
+        0.0,
+        0.05,
+        0.001
+    )
+    .name("Refraction");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uFresnelStrength,
+        "value",
+        0.0,
+        2.0,
+        0.05
+    )
+    .name("Fresnel");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uSpecularStrength,
+        "value",
+        0.0,
+        2.0,
+        0.05
+    )
+    .name("Specular");
+
+screenSpaceFolder.close();
+
+// fluid mouse interaction GUI controls
+// --------------------------------------
 const interactionFolder = gui.addFolder("Mouse Interaction");
 
 interactionFolder
@@ -437,6 +546,8 @@ window.addEventListener("resize", () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 
     particleRenderer.setResolution(window.innerWidth, window.innerHeight);
+
+    screenSpaceFluidRenderer.setResolution(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
 });
 
 // ------------------------------------------------------------
@@ -470,6 +581,7 @@ function animate(currentTime) {
 
     // Renderer update
     particleRenderer.update(currentTime * 0.001);
+    screenSpaceFluidRenderer.update();
 
     debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
@@ -483,7 +595,18 @@ function animate(currentTime) {
     // Controls update
     controls.update();
 
-    renderer.render(scene, camera);
+    if (renderSettings.mode === "Water Particles") {
+        renderer.setRenderTarget(null);
+        renderer.render(scene, camera);
+    } else {
+        screenSpaceFluidRenderer.render(
+            renderer,
+            scene,
+            camera
+        );
+    }
+
+    //renderer.render(scene, camera);
 }
 
 requestAnimationFrame(animate);

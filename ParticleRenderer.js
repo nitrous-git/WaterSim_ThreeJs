@@ -49,6 +49,10 @@ export class ParticleRenderer {
         this.material.updateTime(timeSeconds);
     }
 
+    setEnabled(enabled) {
+        this.points.visible = enabled;
+    }
+
     setResolution(width, height) {
         this.material.setResolution(width, height);
     }
