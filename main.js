@@ -95,25 +95,25 @@ function createContainerBox(scene, min, max) {
 // ------------------------------------------------------------
 
 const solver = new SPHSolver({
-    countX: 11,
-    countY: 14,
-    countZ: 11,
+    countX: 12,
+    countY: 16,
+    countZ: 12,
 
     boxMin,
     boxMax,
 
     h: 0.13,
-    mass: 0.02,
-    restDensity: 25.0,
+    mass: 0.039,
+    restDensity: 73.0,
     stiffness: 8.0,
     gamma: 7.0,
     viscosity: 0.02,
     gravity: -9.81,
 
     fixedDt: 1.0 / 120.0,
-    substeps: 2,
+    substeps: 1,
 
-    particleRadius: 0.025,  // 0.09 is good
+    particleRadius: 0.025,  // 0.09 could also work
     bounce: 0.85,
     wallDamping: 0.85,
     globalDamping: 0.998
@@ -140,7 +140,7 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     height: window.innerHeight,
     pixelRatio: renderer.getPixelRatio(),
 
-    blurIterations: 4
+    blurIterations: 10
 });
 
 // ------------------------------------------------------------

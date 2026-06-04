@@ -13,7 +13,7 @@ export class ScreenSpaceFluidRenderer {
         this.height = options.height ?? window.innerHeight;
         this.pixelRatio = options.pixelRatio ?? 1.0;
 
-        this.blurIterations = options.blurIterations ?? 2;
+        this.blurIterations = options.blurIterations ?? 10;
 
         this.positionAttribute = new THREE.BufferAttribute(this.positions, 3);
         this.positionAttribute.setUsage(THREE.DynamicDrawUsage);
@@ -176,7 +176,7 @@ export class ScreenSpaceFluidRenderer {
                 },
 
                 uDepthThreshold: {
-                    value: 0.12
+                    value: 0.28
                 }
             },
 
@@ -355,7 +355,7 @@ export class ScreenSpaceFluidRenderer {
                 },
 
                 uOpacity: {
-                    value: 0.72
+                    value: 0.21
                 },
 
                 uRefractionStrength: {
@@ -363,7 +363,7 @@ export class ScreenSpaceFluidRenderer {
                 },
 
                 uFresnelStrength: {
-                    value: 0.8
+                    value: 1.5
                 },
 
                 uSpecularStrength: {

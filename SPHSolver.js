@@ -17,8 +17,8 @@ export class SPHSolver {
 
         // SPH parameters
         this.h = options.h ?? 0.13;
-        this.mass = options.mass ?? 0.02;
-        this.restDensity = options.restDensity ?? 25.0;
+        this.mass = options.mass ?? 0.039;
+        this.restDensity = options.restDensity ?? 73.0;
         this.stiffness = options.stiffness ?? 8.0;
         this.gamma = options.gamma ?? 7.0;
         this.viscosity = options.viscosity ?? 0.02;
@@ -26,14 +26,14 @@ export class SPHSolver {
 
         // Integration / collision parameters
         this.fixedDt = options.fixedDt ?? 1.0 / 120.0;
-        this.substeps = options.substeps ?? 2;
+        this.substeps = options.substeps ?? 1;
 
         this.particleRadius = options.particleRadius ?? 0.025;
         this.bounce = options.bounce ?? 0.85;
         this.wallDamping = options.wallDamping ?? 0.85;
         this.globalDamping = options.globalDamping ?? 0.998;
 
-        this.initialSpacing = options.initialSpacing ?? 0.08;
+        this.initialSpacing = options.initialSpacing ?? 0.07;
         this.initialHeight = options.initialHeight ?? 0.65;
 
         // Mouse / pointer interaction
