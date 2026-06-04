@@ -337,6 +337,8 @@ window.addEventListener("resize", () => {
     camera.updateProjectionMatrix();
 
     renderer.setSize(window.innerWidth, window.innerHeight);
+
+    particleRenderer.setResolution(window.innerWidth, window.innerHeight);
 });
 
 // ------------------------------------------------------------
@@ -368,7 +370,7 @@ function animate(currentTime) {
     }
 
     // Renderer update
-    particleRenderer.update();
+    particleRenderer.update(currentTime * 0.001);
 
     debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
@@ -379,7 +381,9 @@ function animate(currentTime) {
         viscosity: ${solver.viscosity.toFixed(3)}
     `;
 
+    // Controls update
     controls.update();
+
     renderer.render(scene, camera);
 }
 
