@@ -38,8 +38,8 @@ export class SPHSolver {
 
         // Mouse / pointer interaction
         this.mouseForceActive = false;
-        this.mouseForceRadius = options.mouseForceRadius ?? 0.18;
-        this.mouseForceStrength = options.mouseForceStrength ?? 45.0;
+        this.mouseForceRadius = options.mouseForceRadius ?? 0.40;
+        this.mouseForceStrength = options.mouseForceStrength ?? 96.0;
 
         this.mouseRayOrigin = { x: 0.0, y: 0.0, z: 0.0 };
         this.mouseRayDirection = { x: 0.0, y: 0.0, z: -1.0 };

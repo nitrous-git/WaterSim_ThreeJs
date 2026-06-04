@@ -303,6 +303,8 @@ integrationFolder
         solver.substeps = value;
     });
 
+integrationFolder.close();
+
 const collisionFolder = gui.addFolder("Collision");
 
 collisionFolder
@@ -327,6 +329,8 @@ collisionFolder
     });
 
 gui.add(guiSettings, "reset").name("Reset Simulation");
+
+collisionFolder.close();
 
 const interactionFolder = gui.addFolder("Mouse Interaction");
 
