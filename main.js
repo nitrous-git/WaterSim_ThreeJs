@@ -104,7 +104,7 @@ const solver = new SPHSolver({
 
     h: 0.13,
     mass: 0.039,
-    restDensity: 73.0,
+    restDensity: 92.0,
     stiffness: 8.0,
     gamma: 7.0,
     viscosity: 0.02,
@@ -140,7 +140,7 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     height: window.innerHeight,
     pixelRatio: renderer.getPixelRatio(),
 
-    blurIterations: 10
+    blurIterations: 20
 });
 
 // ------------------------------------------------------------
@@ -326,6 +326,36 @@ sphFolder
         solver.gravity = value;
     });
 
+sphFolder
+    .add(
+        solver,
+        "surfaceTension",
+        0.0,
+        2000.0,
+        1.0
+    )
+    .name("Cohesion Strength");
+
+sphFolder
+    .add(
+        solver,
+        "surfaceDensityRange",
+        0.05,
+        0.8,
+        0.01
+    )
+    .name("Surface Density Range");
+
+sphFolder
+    .add(
+        solver,
+        "cohesionMinQ",
+        0.0,
+        0.8,
+        0.01
+    )
+    .name("Minimum Distance Ratio");
+
 sphFolder.close();
 
 const integrationFolder = gui.addFolder("Integration");
@@ -382,7 +412,7 @@ screenSpaceFolder
         screenSpaceFluidRenderer,
         "blurIterations",
         1,
-        10,
+        20,
         1
     )
     .name("Blur Iterations");
@@ -462,11 +492,11 @@ interactionFolder
     });
 
 interactionFolder
-    .add(solver, "mouseForceRadius", 0.05, 0.5, 0.01)
+    .add(solver, "mouseForceRadius", 0.10, 0.45, 0.01)
     .name("Radius");
 
 interactionFolder
-    .add(solver, "mouseForceStrength", -150.0, 150.0, 1.0)
+    .add(solver, "mouseForceStrength", -50.0, 50.0, 1.0)
     .name("Strength");
 
 interactionFolder.open();
@@ -599,14 +629,8 @@ function animate(currentTime) {
         renderer.setRenderTarget(null);
         renderer.render(scene, camera);
     } else {
-        screenSpaceFluidRenderer.render(
-            renderer,
-            scene,
-            camera
-        );
+        screenSpaceFluidRenderer.render(renderer, scene, camera);
     }
-
-    //renderer.render(scene, camera);
 }
 
 requestAnimationFrame(animate);

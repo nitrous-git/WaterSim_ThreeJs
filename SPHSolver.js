@@ -7,7 +7,7 @@ import { SpatialHashGrid3D } from "./SpatialHashGrid3D.js";
 export class SPHSolver {
     constructor(options = {}) {
         this.countX = options.countX ?? 10;
-        this.countY = options.countY ?? 14;
+        this.countY = options.countY ?? 18;
         this.countZ = options.countZ ?? 10;
 
         this.numParticles = this.countX * this.countY * this.countZ;
@@ -18,7 +18,7 @@ export class SPHSolver {
         // SPH parameters
         this.h = options.h ?? 0.13;
         this.mass = options.mass ?? 0.039;
-        this.restDensity = options.restDensity ?? 73.0;
+        this.restDensity = options.restDensity ?? 92.0;
         this.stiffness = options.stiffness ?? 8.0;
         this.gamma = options.gamma ?? 7.0;
         this.viscosity = options.viscosity ?? 0.02;
@@ -36,10 +36,23 @@ export class SPHSolver {
         this.initialSpacing = options.initialSpacing ?? 0.07;
         this.initialHeight = options.initialHeight ?? 0.65;
 
+        // Surface tension
+
+        // This is a tunable simulation coefficient,
+        // not a real SI water surface-tension value.
+        this.surfaceTension = options.surfaceTension ?? 1779.0;
+
+        // Density deficit required to classify a particle
+        // as strongly exposed to the free surface.
+        this.surfaceDensityRange = options.surfaceDensityRange ?? 0.2;
+
+        // Avoid attraction at very small particle separations.
+        this.cohesionMinQ = options.cohesionMinQ ?? 0.28;
+
         // Mouse / pointer interaction
         this.mouseForceActive = false;
         this.mouseForceRadius = options.mouseForceRadius ?? 0.40;
-        this.mouseForceStrength = options.mouseForceStrength ?? 96.0;
+        this.mouseForceStrength = options.mouseForceStrength ?? 50.0;
 
         this.mouseRayOrigin = { x: 0.0, y: 0.0, z: 0.0 };
         this.mouseRayDirection = { x: 0.0, y: 0.0, z: -1.0 };
@@ -51,6 +64,8 @@ export class SPHSolver {
 
         this.densities = new Float32Array(this.numParticles);
         this.pressures = new Float32Array(this.numParticles);
+
+        this.surfaceFactors = new Float32Array(this.numParticles);
 
         this.grid = new SpatialHashGrid3D(this.h);
 
@@ -163,6 +178,10 @@ export class SPHSolver {
             const pressure = this.stiffness * (Math.pow(ratio, this.gamma) - 1.0);
 
             this.pressures[i] = Math.max(pressure, 0.0);
+
+            // Surface Factor
+            const densityDeficit = (this.restDensity - rho) / (this.restDensity * this.surfaceDensityRange);
+            this.surfaceFactors[i] = Math.min(1.0, Math.max(0.0, densityDeficit));
         }
     }
 
@@ -228,6 +247,28 @@ export class SPHSolver {
                 ay += this.viscosity * this.mass * (this.velocities[jb + 1] - vyi) / rhoj * lap;
 
                 az += this.viscosity * this.mass * (this.velocities[jb + 2] - vzi) / rhoj * lap;
+
+                // Weak surface cohesion
+                const surfaceFactor = Math.max(this.surfaceFactors[i], this.surfaceFactors[j]);
+
+                if (surfaceFactor > 0.0) {
+                    const q = r / this.h;
+
+                    const cohesionWeight = this.computeCohesionWeight(q);
+
+                    if (cohesionWeight > 0.0) {
+                        const invR = 1.0 / r;
+
+                        const cohesionAcceleration = this.surfaceTension * this.mass * surfaceFactor * cohesionWeight / Math.max(rhoj, 0.0001);
+
+                        ax += cohesionAcceleration * (-rx * invR);
+
+                        ay += cohesionAcceleration * (-ry * invR);
+
+                        az += cohesionAcceleration * (-rz * invR);
+                    }
+                }
+
             });
 
             this.accelerations[ib] = ax;
@@ -416,4 +457,22 @@ export class SPHSolver {
             this.accelerations[base + 2] += nz * force;
         }
     }
+
+    // Surface Tension helper methods
+    // ------------------------------------------------------------
+
+    computeCohesionWeight(q) {
+        if (q <= this.cohesionMinQ || q >= 1.0) {
+            return 0.0;
+        }
+
+        const t = (q - this.cohesionMinQ) / (1.0 - this.cohesionMinQ);
+
+        // 0 near very small separation
+        // maximum attraction at medium separation
+        // 0 at the edge of the SPH support radius
+        return 4.0 * t * (1.0 - t);
+    }
+
+
 }
