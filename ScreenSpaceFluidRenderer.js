@@ -924,4 +924,5 @@ export class ScreenSpaceFluidRenderer {
 
         this.fullscreenQuad.geometry.dispose();
     }
+
 }
