@@ -103,7 +103,7 @@ const solver = new SPHSolver({
     boxMax,
 
     h: 0.13,
-    mass: 0.039,
+    mass: 0.033,
     restDensity: 75.0,
     stiffness: 8.0,
     gamma: 7.0,
@@ -114,8 +114,8 @@ const solver = new SPHSolver({
     substeps: 1,
 
     particleRadius: 0.025,
-    bounce: 0.25, //0.25
-    wallDamping: 0.85, // 0.85
+    bounce: 1.0, //0.25
+    wallDamping: 1.0, // 0.85
     globalDamping: 0.998
 });
 
@@ -138,9 +138,9 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
 
     width: window.innerWidth,
     height: window.innerHeight,
-    pixelRatio: renderer.getPixelRatio(),
+    pixelRatio: 1.0,
 
-    blurIterations: 10
+    blurIterations: 9
 });
 
 // ------------------------------------------------------------
@@ -252,8 +252,13 @@ presetFolder.open();
 */
 
 const renderSettings = {
-    mode: "Screen-Space Fluid"
+    mode: "Screen-Space Fluid",
+    visualRadiusScale: 0.45
 };
+
+function syncScreenSpaceParticleRadius() {
+    screenSpaceFluidRenderer.particleRadius = solver.h * renderSettings.visualRadiusScale;
+}
 
 const renderModes = [
     "Water Particles",
@@ -282,6 +287,7 @@ sphFolder
     .name("Smoothing h")
     .onChange((value) => {
         solver.setSmoothingLength(value);
+        syncScreenSpaceParticleRadius();
     });
 
 sphFolder
@@ -467,6 +473,53 @@ screenSpaceFolder
     )
     .name("Specular");
 
+screenSpaceFolder
+    .add(renderSettings, "visualRadiusScale", 0.2, 1.2, 0.01)
+    .name("Radius Scale")
+    .onChange(() => {
+        syncScreenSpaceParticleRadius();
+    });
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.thicknessMaterial.uniforms.uThicknessStrength,
+        "value",
+        0.0,
+        0.25,
+        0.005
+    )
+    .name("Thickness Strength");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uAbsorptionStrength,
+        "value",
+        0.0,
+        10.0,
+        0.1
+    )
+    .name("Absorption");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uThicknessOpacity,
+        "value",
+        0.0,
+        10.0,
+        0.1
+    )
+    .name("Thickness Opacity");
+
+screenSpaceFolder
+    .add(
+        screenSpaceFluidRenderer.compositeMaterial.uniforms.uReflectionStrength,
+        "value",
+        0.0,
+        2.0,
+        0.05
+    )
+    .name("Sky Reflection");
+
 screenSpaceFolder.close();
 
 // fluid mouse interaction GUI controls
@@ -577,7 +630,7 @@ window.addEventListener("resize", () => {
 
     particleRenderer.setResolution(window.innerWidth, window.innerHeight);
 
-    screenSpaceFluidRenderer.setResolution(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
+    screenSpaceFluidRenderer.setResolution(window.innerWidth, window.innerHeight, 1.0);
 });
 
 // ------------------------------------------------------------
