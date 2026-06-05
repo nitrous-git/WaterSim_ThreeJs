@@ -22,8 +22,8 @@ const camera = new THREE.PerspectiveCamera(
     100
 );
 
-camera.position.set(2.5, 2.0, 3.0);
-camera.lookAt(0, 0.9, 0);
+camera.position.set(3.5, 1.5, 2.5);
+camera.lookAt(0, 0.0, 0);
 
 const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -70,7 +70,7 @@ scene.add(dirLight);
 // ------------------------------------------------------------
 
 const boxMin = new THREE.Vector3(-0.2, 0.0, -0.6);
-const boxMax = new THREE.Vector3(1.0, 1.6, 1.0);
+const boxMax = new THREE.Vector3(1.0, 1.6, 1.5);
 
 createContainerBox(scene, boxMin, boxMax);
 
@@ -95,16 +95,16 @@ function createContainerBox(scene, min, max) {
 // ------------------------------------------------------------
 
 const solver = new SPHSolver({
-    countX: 12,
-    countY: 16,
-    countZ: 12,
+    countX: 18,
+    countY: 10,
+    countZ: 18,
 
     boxMin,
     boxMax,
 
     h: 0.13,
     mass: 0.039,
-    restDensity: 92.0,
+    restDensity: 75.0,
     stiffness: 8.0,
     gamma: 7.0,
     viscosity: 0.02,
@@ -113,9 +113,9 @@ const solver = new SPHSolver({
     fixedDt: 1.0 / 120.0,
     substeps: 1,
 
-    particleRadius: 0.025,  // 0.09 could also work
-    bounce: 0.25,
-    wallDamping: 0.85,
+    particleRadius: 0.025,
+    bounce: 0.25, //0.25
+    wallDamping: 0.85, // 0.85
     globalDamping: 0.998
 });
 

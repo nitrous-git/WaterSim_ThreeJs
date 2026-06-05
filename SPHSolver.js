@@ -7,7 +7,7 @@ import { SpatialHashGrid3D } from "./SpatialHashGrid3D.js";
 export class SPHSolver {
     constructor(options = {}) {
         this.countX = options.countX ?? 10;
-        this.countY = options.countY ?? 18;
+        this.countY = options.countY ?? 14;
         this.countZ = options.countZ ?? 10;
 
         this.numParticles = this.countX * this.countY * this.countZ;
@@ -16,7 +16,7 @@ export class SPHSolver {
         this.boxMax = options.boxMax ?? { x: 1.0, y: 1.6, z: 1.0 };
 
         // SPH parameters
-        this.h = options.h ?? 0.13;
+        this.h = options.h ?? 0.12;
         this.mass = options.mass ?? 0.039;
         this.restDensity = options.restDensity ?? 92.0;
         this.stiffness = options.stiffness ?? 8.0;
@@ -90,9 +90,9 @@ export class SPHSolver {
     reset() {
         let index = 0;
 
-        const startX = 0.00;
-        const startY = 0.35;
-        const startZ = -0.15;
+        const startX = -0.20;
+        const startY = 0.0;
+        const startZ = -0.5;
 
         for (let y = 0; y < this.countY; y++) {
             for (let x = 0; x < this.countX; x++) {
