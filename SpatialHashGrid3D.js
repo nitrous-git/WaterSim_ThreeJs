@@ -22,7 +22,7 @@ export class SpatialHashGrid3D {
     }
 
     cellKey(ix, iy, iz) {
-        return `${ix},${iy},${iz}`;
+        return ((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) | 0;
     }
 
     build(positions, particleCount) {

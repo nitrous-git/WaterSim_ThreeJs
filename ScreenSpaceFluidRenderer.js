@@ -13,7 +13,7 @@ export class ScreenSpaceFluidRenderer {
         this.height = options.height ?? window.innerHeight;
         this.pixelRatio = options.pixelRatio ?? 1.0;
 
-        this.blurIterations = options.blurIterations ?? 20;
+        this.blurIterations = options.blurIterations ?? 10;
 
         this.positionAttribute = new THREE.BufferAttribute(this.positions, 3);
         this.positionAttribute.setUsage(THREE.DynamicDrawUsage);

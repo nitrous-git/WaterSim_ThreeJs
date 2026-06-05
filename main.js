@@ -114,7 +114,7 @@ const solver = new SPHSolver({
     substeps: 1,
 
     particleRadius: 0.025,  // 0.09 could also work
-    bounce: 0.85,
+    bounce: 0.25,
     wallDamping: 0.85,
     globalDamping: 0.998
 });
@@ -140,7 +140,7 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     height: window.innerHeight,
     pixelRatio: renderer.getPixelRatio(),
 
-    blurIterations: 20
+    blurIterations: 10
 });
 
 // ------------------------------------------------------------
@@ -585,16 +585,23 @@ window.addEventListener("resize", () => {
 // ------------------------------------------------------------
 
 let previousTime = performance.now();
+let accumulator = 0;
+const maxFrameDt = 0.05;
 
 function animate(currentTime) {
     requestAnimationFrame(animate);
 
-    // Debugger FPS update
-    const deltaSeconds = (currentTime - previousTime) * 0.001;
+
+    const rawDeltaSeconds = (currentTime - previousTime) * 0.001;
+    const physicsDeltaSeconds = Math.min(rawDeltaSeconds, maxFrameDt);
+
     previousTime = currentTime;
 
+    //accumulator += physicsDeltaSeconds;
+
+    // This counts rendered frames, not physics steps
     frameCounter++;
-    fpsTimer += deltaSeconds;
+    fpsTimer += rawDeltaSeconds;
 
     if (fpsTimer >= 0.25) {
         displayedFps = Math.round(frameCounter / fpsTimer);
@@ -609,23 +616,26 @@ function animate(currentTime) {
         solver.step(solver.fixedDt / solver.substeps);
     }
 
-    // Renderer update
-    particleRenderer.update(currentTime * 0.001);
-    screenSpaceFluidRenderer.update();
+    const useParticles = renderSettings.mode === "Water Particles";
+
+    if (useParticles) {
+        particleRenderer.update(currentTime * 0.001);
+    } else {
+        screenSpaceFluidRenderer.update();
+    }
 
     debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
         FPS: ${displayedFps}<br>
-        Substeps: ${solver.substeps}<br>
+        fixedDt: ${solver.fixedDt.toFixed(4)}<br>
         h: ${solver.h.toFixed(3)}<br>
         stiffness: ${solver.stiffness.toFixed(2)}<br>
         viscosity: ${solver.viscosity.toFixed(3)}
     `;
 
-    // Controls update
     controls.update();
 
-    if (renderSettings.mode === "Water Particles") {
+    if (useParticles) {
         renderer.setRenderTarget(null);
         renderer.render(scene, camera);
     } else {
