@@ -139,8 +139,9 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     width: window.innerWidth,
     height: window.innerHeight,
     pixelRatio: 1.0,
+    fluidResolutionScale: 1.0,
 
-    blurIterations: 9
+    blurIterations: 4
 });
 
 // ------------------------------------------------------------
@@ -304,7 +305,8 @@ presetFolder.open();
 
 const renderSettings = {
     mode: "Screen-Space Fluid",
-    visualRadiusScale: 0.45
+    visualRadiusScale: 0.45,
+    fluidResolutionScale: 1.0
 };
 
 const benchmarkSettings = {
@@ -527,6 +529,23 @@ screenSpaceFolder
         1
     )
     .name("Blur Iterations");
+
+screenSpaceFolder
+    .add(
+        renderSettings,
+        "fluidResolutionScale",
+        0.25,
+        1.0,
+        0.05
+    )
+    .name("Fluid Resolution")
+    .onFinishChange((value) => {
+
+        screenSpaceFluidRenderer
+            .setFluidResolutionScale(
+                value
+            );
+    });
 
 screenSpaceFolder
     .add(
@@ -894,9 +913,11 @@ function animate(currentTime) {
         <b>Resolution</b><br>
         Canvas CSS: ${canvasCssWidth} × ${canvasCssHeight}<br>
         Drawing Buffer: ${drawingBufferSize.x} × ${drawingBufferSize.y}<br>
-        Fluid RT: ${screenSpaceFluidRenderer.targetWidth} × ${screenSpaceFluidRenderer.targetHeight}<br>
+        Scene RT: ${screenSpaceFluidRenderer.sceneTargetWidth} × ${screenSpaceFluidRenderer.sceneTargetHeight}<br>
+        Fluid RT: ${screenSpaceFluidRenderer.fluidTargetWidth} × ${screenSpaceFluidRenderer.fluidTargetHeight}<br>
         Renderer DPR: ${renderer.getPixelRatio().toFixed(2)}<br>
         Fluid Pixel Ratio: ${screenSpaceFluidRenderer.pixelRatio.toFixed(2)}<br>
+        Fluid Scale: ${screenSpaceFluidRenderer.fluidResolutionScale.toFixed(2)}<br>
         <br>
         
         fixedDt: ${solver.fixedDt.toFixed(4)}<br>
