@@ -69,13 +69,50 @@ scene.add(dirLight);
 // Simulation size
 // ------------------------------------------------------------
 
+// 3240 particle count
+// const simulationSize = {
+//     countX: 18,
+//     countY: 10,
+//     countZ: 18,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.0, 1.6, 1.5),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 5292 particle count
+// const simulationSize = {
+//     countX: 21,
+//     countY: 12,
+//     countZ: 21,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.25, 1.9, 1.9),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 5808 particle count
+// const simulationSize = {
+//     countX: 22,
+//     countY: 12,
+//     countZ: 22,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.35, 2.0, 2.0),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 7488 particle count
 const simulationSize = {
-    countX: 18,
-    countY: 10,
-    countZ: 18,
+    countX: 24,
+    countY: 13,
+    countZ: 24,
 
     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
-    boxMax: new THREE.Vector3(1.0, 1.6, 1.5),
+    boxMax: new THREE.Vector3(1.50, 2.15, 2.20),
 
     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
 };
