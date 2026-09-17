@@ -139,11 +139,12 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     width: window.innerWidth,
     height: window.innerHeight,
     pixelRatio: 1.0,
-    fluidResolutionScale: 1.0,
+    fluidResolutionScale: 0.5,
 
     blurIterations: 4
 });
 
+screenSpaceFluidRenderer.setFluidResolutionScale(screenSpaceFluidRenderer.fluidResolutionScale);
 // ------------------------------------------------------------
 // Debug panel
 // ------------------------------------------------------------
@@ -306,7 +307,7 @@ presetFolder.open();
 const renderSettings = {
     mode: "Screen-Space Fluid",
     visualRadiusScale: 0.45,
-    fluidResolutionScale: 1.0
+    fluidResolutionScale: 0.5
 };
 
 const benchmarkSettings = {
