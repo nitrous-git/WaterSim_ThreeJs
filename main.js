@@ -66,11 +66,26 @@ dirLight.position.set(3, 5, 2);
 scene.add(dirLight);
 
 // ------------------------------------------------------------
+// Simulation size
+// ------------------------------------------------------------
+
+const simulationSize = {
+    countX: 18,
+    countY: 10,
+    countZ: 18,
+
+    boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+    boxMax: new THREE.Vector3(1.0, 1.6, 1.5),
+
+    spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+};
+
+// ------------------------------------------------------------
 // Container
 // ------------------------------------------------------------
 
-const boxMin = new THREE.Vector3(-0.2, 0.0, -0.6);
-const boxMax = new THREE.Vector3(1.0, 1.6, 1.5);
+const boxMin = simulationSize.boxMin;
+const boxMax = simulationSize.boxMax;
 
 createContainerBox(scene, boxMin, boxMax);
 
@@ -95,9 +110,11 @@ function createContainerBox(scene, min, max) {
 // ------------------------------------------------------------
 
 const solver = new SPHSolver({
-    countX: 18,
-    countY: 10,
-    countZ: 18,
+    countX: simulationSize.countX,
+    countY: simulationSize.countY,
+    countZ: simulationSize.countZ,
+
+    initialPosition: simulationSize.spawnOrigin,
 
     boxMin,
     boxMax,
