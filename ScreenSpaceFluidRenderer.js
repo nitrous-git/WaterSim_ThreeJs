@@ -12,6 +12,7 @@ export class ScreenSpaceFluidRenderer {
         this.width = options.width ?? window.innerWidth;
         this.height = options.height ?? window.innerHeight;
         this.pixelRatio = options.pixelRatio ?? 1.0;
+        this.fluidResolutionScale = options.fluidResolutionScale ?? 1.0;
 
         this.blurIterations = options.blurIterations ?? 10;
 
@@ -666,69 +667,81 @@ export class ScreenSpaceFluidRenderer {
     // ------------------------------------------------------------
 
     allocateRenderTargets() {
-        const targetWidth = Math.max(
-            1,
-            Math.floor(this.width * this.pixelRatio)
-        );
+        // --------------------------------------------------------
+        // Full-resolution scene targets
+        // --------------------------------------------------------
 
-        const targetHeight = Math.max(
-            1,
-            Math.floor(this.height * this.pixelRatio)
-        );
+        const sceneWidth = Math.max(1, Math.floor(this.width * this.pixelRatio));
+        const sceneHeight = Math.max(1, Math.floor(this.height * this.pixelRatio));
+
+        // --------------------------------------------------------
+        // Reduced-resolution fluid targets
+        // --------------------------------------------------------
+
+        const fluidWidth = Math.max(1, Math.floor(sceneWidth * this.fluidResolutionScale));
+        const fluidHeight = Math.max(1, Math.floor(sceneHeight * this.fluidResolutionScale));
 
         this.disposeRenderTargets();
 
-        this.sceneTarget = new THREE.WebGLRenderTarget(
-            targetWidth,
-            targetHeight,
-            {
-                minFilter: THREE.LinearFilter,
-                magFilter: THREE.LinearFilter,
-                format: THREE.RGBAFormat,
-                depthBuffer: true,
-                stencilBuffer: false
-            }
-        );
+        // --------------------------------------------------------
+        // Scene color + depth
+        // Full resolution
+        // --------------------------------------------------------
+
+        this.sceneTarget = new THREE.WebGLRenderTarget(sceneWidth, sceneHeight, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat,
+            depthBuffer: true,
+            stencilBuffer: false
+        });
 
         this.sceneTarget.texture.generateMipmaps = false;
 
         this.sceneTarget.depthTexture = new THREE.DepthTexture(
-            targetWidth,
-            targetHeight,
+            sceneWidth,
+            sceneHeight,
             THREE.UnsignedIntType
         );
 
         this.sceneTarget.depthTexture.format = THREE.DepthFormat;
         this.sceneTarget.depthTexture.type = THREE.UnsignedIntType;
 
-        this.depthTarget = this.createFluidDepthTarget(targetWidth, targetHeight, true);
-        this.blurTargetA = this.createFluidDepthTarget(targetWidth, targetHeight, false);
-        this.blurTargetB = this.createFluidDepthTarget(targetWidth, targetHeight, false);
+        // --------------------------------------------------------
+        // Fluid intermediate buffers
+        // Reduced resolution
+        // --------------------------------------------------------
 
-        this.thicknessTarget = this.createFluidValueTarget(targetWidth, targetHeight);
-        this.thicknessBlurTargetA = this.createFluidValueTarget(targetWidth, targetHeight);
-        this.thicknessBlurTargetB = this.createFluidValueTarget(targetWidth, targetHeight);
+        this.depthTarget = this.createFluidDepthTarget(fluidWidth, fluidHeight, true);
+        this.blurTargetA = this.createFluidDepthTarget(fluidWidth, fluidHeight, false);
+        this.blurTargetB = this.createFluidDepthTarget(fluidWidth, fluidHeight, false);
 
-        const texelSizeX = 1.0 / targetWidth;
-        const texelSizeY = 1.0 / targetHeight;
+        this.thicknessTarget = this.createFluidValueTarget(fluidWidth, fluidHeight);
+        this.thicknessBlurTargetA = this.createFluidValueTarget(fluidWidth, fluidHeight);
+        this.thicknessBlurTargetB = this.createFluidValueTarget(fluidWidth, fluidHeight);
 
-        this.blurMaterial.uniforms.uTexelSize.value.set(
-            texelSizeX,
-            texelSizeY
-        );
+        // --------------------------------------------------------
+        // Fluid texel size
+        //
+        // Normal reconstruction and blur operate on the
+        // reduced-resolution fluid textures.
+        // --------------------------------------------------------
 
-        this.compositeMaterial.uniforms.uTexelSize.value.set(
-            texelSizeX,
-            texelSizeY
-        );
+        const fluidTexelSizeX = 1.0 / fluidWidth;
+        const fluidTexelSizeY = 1.0 / fluidHeight;
 
-        this.thicknessBlurMaterial.uniforms.uTexelSize.value.set(
-            texelSizeX,
-            texelSizeY
-        );
+        this.blurMaterial.uniforms.uTexelSize.value.set(fluidTexelSizeX, fluidTexelSizeY);
+        this.compositeMaterial.uniforms.uTexelSize.value.set(fluidTexelSizeX, fluidTexelSizeY);
+        this.thicknessBlurMaterial.uniforms.uTexelSize.value.set(fluidTexelSizeX, fluidTexelSizeY);
 
-        this.targetWidth = targetWidth;
-        this.targetHeight = targetHeight;
+        // --------------------------------------------------------
+        // Expose dimensions for rendering / diagnostics
+        // --------------------------------------------------------
+
+        this.sceneTargetWidth = sceneWidth;
+        this.sceneTargetHeight = sceneHeight;
+        this.fluidTargetWidth = fluidWidth;
+        this.fluidTargetHeight = fluidHeight;
     }
 
     createFluidDepthTarget(width, height, depthBuffer) {
@@ -796,15 +809,26 @@ export class ScreenSpaceFluidRenderer {
         this.allocateRenderTargets();
     }
 
+    setFluidResolutionScale(value) {
+        const clampedValue = Math.max(0.25, Math.min(1.0, value));
+
+        if (Math.abs(clampedValue - this.fluidResolutionScale) < 0.0001) {
+            return;
+        }
+
+        this.fluidResolutionScale = clampedValue;
+        this.allocateRenderTargets();
+    }
+
     render(renderer, scene, camera) {
         camera.updateMatrixWorld();
 
         this.depthMaterial.uniforms.uPointRadius.value = this.particleRadius;
-        this.depthMaterial.uniforms.uPointScale.value = this.targetHeight * camera.projectionMatrix.elements[5];
+        this.depthMaterial.uniforms.uPointScale.value = this.fluidTargetHeight * camera.projectionMatrix.elements[5];
         this.depthMaterial.uniforms.uProjectionMatrix.value.copy(camera.projectionMatrix);
 
         this.thicknessMaterial.uniforms.uPointRadius.value = this.particleRadius;
-        this.thicknessMaterial.uniforms.uPointScale.value = this.targetHeight * camera.projectionMatrix.elements[5];
+        this.thicknessMaterial.uniforms.uPointScale.value = this.fluidTargetHeight * camera.projectionMatrix.elements[5];
 
         this.compositeMaterial.uniforms.uProjectionMatrixInverse.value.copy(camera.projectionMatrixInverse);
         this.compositeMaterial.uniforms.uCameraNear.value = camera.near;

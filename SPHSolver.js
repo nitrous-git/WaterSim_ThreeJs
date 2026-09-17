@@ -67,9 +67,22 @@ export class SPHSolver {
 
         this.surfaceFactors = new Float32Array(this.numParticles);
 
-        this.grid = new SpatialHashGrid3D(this.h);
+        this.grid = new SpatialHashGrid3D(this.h, this.boxMin, this.boxMax);
+
+        // debug forces
+        this.enablePressureForce = true;
+        this.enableViscosityForce = true;
+        this.enableCohesionForce = true;
 
         this.updateKernelConstants();
+
+        this.profile = {
+            gridMs: 0.0,
+            densityMs: 0.0,
+            forcesMs: 0.0,
+            integrationMs: 0.0,
+            totalMs: 0.0
+        };
     }
 
     updateKernelConstants() {
@@ -127,153 +140,347 @@ export class SPHSolver {
     }
 
     step(dt) {
-        // Build neighbor structure
+        const totalStart = performance.now();
+
+        // --------------------------------------------------------
+        // Spatial grid
+        // --------------------------------------------------------
+
+        let phaseStart = performance.now();
+
         this.grid.build(this.positions, this.numParticles);
 
-        // Compute SPH state
+        this.profile.gridMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Density / pressure
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
         this.computeDensityAndPressure();
+
+        this.profile.densityMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Forces
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
         this.computeForces();
 
-        // Add external mouse force
-        // We call applyMouseForce() after computeForces() and before integrateEuler(dt)
-        // That way the mouse simply adds extra acceleration into the current frame
+        this.profile.forcesMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // External forces + integration
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
         this.applyMouseForce();
 
-        // Simple semi-implicit Euler
         this.integrateEuler(dt);
 
-        // Small damping, similar in spirit to the damping term in the Python version
         this.applyGlobalDamping();
+
+        this.profile.integrationMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Total solver step
+        // --------------------------------------------------------
+
+        this.profile.totalMs = performance.now() - totalStart;
     }
 
     computeDensityAndPressure() {
+        const positions = this.positions;
+        const densities = this.densities;
+        const pressures = this.pressures;
+
+        const grid = this.grid;
+
+        const cellHeads = grid.cellHeads;
+        const particleNext = grid.particleNext;
+
+        const cellsX = grid.cellsX;
+        const cellsY = grid.cellsY;
+        const cellsZ = grid.cellsZ;
+
+        const strideY = cellsX;
+        const strideZ = cellsX * cellsY;
+
+        const invCellSize = grid.invCellSize;
+
+        const gridMinX = grid.boxMin.x;
+        const gridMinY = grid.boxMin.y;
+        const gridMinZ = grid.boxMin.z;
+
+        const h2 = this.h2;
+        const mass = this.mass;
+        const poly6 = this.poly6;
+
+
         for (let i = 0; i < this.numParticles; i++) {
             const ib = i * 3;
+            const xi = positions[ib];
+            const yi = positions[ib + 1];
+            const zi = positions[ib + 2];
 
-            const xi = this.positions[ib];
-            const yi = this.positions[ib + 1];
-            const zi = this.positions[ib + 2];
+            let ix = Math.floor((xi - gridMinX) * invCellSize);
+            let iy = Math.floor((yi - gridMinY) * invCellSize);
+            let iz = Math.floor((zi - gridMinZ) * invCellSize);
 
-            let rho = 0.0;
+            ix = Math.max(0, Math.min(cellsX - 1, ix));
+            iy = Math.max(0, Math.min(cellsY - 1, iy));
+            iz = Math.max(0, Math.min(cellsZ - 1, iz));
 
-            this.grid.forEachNeighbor(this.positions, i, (j) => {
-                const jb = j * 3;
+            const minX = Math.max(0, ix - 1);
+            const maxX = Math.min(cellsX - 1, ix + 1);
 
-                const rx = xi - this.positions[jb];
-                const ry = yi - this.positions[jb + 1];
-                const rz = zi - this.positions[jb + 2];
+            const minY = Math.max(0, iy - 1);
+            const maxY = Math.min(cellsY - 1, iy + 1);
 
-                const r2 = rx * rx + ry * ry + rz * rz;
+            const minZ = Math.max(0, iz - 1);
+            const maxZ = Math.min(cellsZ - 1, iz + 1);
 
-                if (r2 < this.h2) {
-                    const diff = this.h2 - r2;
-                    rho += this.mass * this.poly6 * diff * diff * diff;
+            let density = 0.0;
+
+            for (let z = minZ; z <= maxZ; z++) {
+                const zOffset = z * strideZ;
+
+                for (let y = minY; y <= maxY; y++) {
+                    const yzOffset = zOffset + y * strideY;
+
+                    for (let x = minX; x <= maxX; x++) {
+                        let j = cellHeads[yzOffset + x];
+
+                        while (j !== -1) {
+                            const jb = j * 3;
+
+                            const dx = xi - positions[jb];
+                            const dy = yi - positions[jb + 1];
+                            const dz = zi - positions[jb + 2];
+
+                            const r2 = dx * dx + dy * dy + dz * dz;
+
+                            if (r2 < h2) {
+                                const diff = h2 - r2;
+                                density += mass * poly6 * diff * diff * diff;
+                            }
+
+                            j = particleNext[j];
+                        }
+                    }
                 }
-            });
+            }
 
-            rho = Math.max(rho, 0.0001);
-            this.densities[i] = rho;
+            densities[i] = density;
 
-            const ratio = rho / this.restDensity;
+            const ratio = density / this.restDensity;
             const pressure = this.stiffness * (Math.pow(ratio, this.gamma) - 1.0);
 
-            this.pressures[i] = Math.max(pressure, 0.0);
+            pressures[i] = Math.max(pressure, 0.0);
 
             // Surface Factor
-            const densityDeficit = (this.restDensity - rho) / (this.restDensity * this.surfaceDensityRange);
+            const densityDeficit = (this.restDensity - density) / (this.restDensity * this.surfaceDensityRange);
             this.surfaceFactors[i] = Math.min(1.0, Math.max(0.0, densityDeficit));
         }
     }
 
     computeForces() {
+        const positions = this.positions;
+        const velocities = this.velocities;
+        const accelerations = this.accelerations;
+
+        const densities = this.densities;
+        const pressures = this.pressures;
+        const surfaceFactors = this.surfaceFactors;
+
+        const grid = this.grid;
+
+        const cellHeads = grid.cellHeads;
+        const particleNext = grid.particleNext;
+
+        const cellsX = grid.cellsX;
+        const cellsY = grid.cellsY;
+        const cellsZ = grid.cellsZ;
+
+        const strideY = cellsX;
+        const strideZ = cellsX * cellsY;
+
+        const invCellSize = grid.invCellSize;
+
+        const gridMinX = grid.boxMin.x;
+        const gridMinY = grid.boxMin.y;
+        const gridMinZ = grid.boxMin.z;
+
+        const h = this.h;
+        const h2 = this.h2;
+
+        const mass = this.mass;
+
+        const gravity = this.gravity;
+
+        const spikyGrad = this.spikyGrad;
+        const viscLap = this.viscLap;
+
+        const viscosity = this.viscosity;
+
+        const surfaceTension = this.surfaceTension;
+
+        const enablePressure = this.enablePressureForce;
+        const enableViscosity = this.enableViscosityForce;
+        const enableCohesion = this.enableCohesionForce;
+
         for (let i = 0; i < this.numParticles; i++) {
             const ib = i * 3;
 
-            const xi = this.positions[ib];
-            const yi = this.positions[ib + 1];
-            const zi = this.positions[ib + 2];
+            const xi = positions[ib];
+            const yi = positions[ib + 1];
+            const zi = positions[ib + 2];
 
-            const vxi = this.velocities[ib];
-            const vyi = this.velocities[ib + 1];
-            const vzi = this.velocities[ib + 2];
+            const vxi = velocities[ib];
+            const vyi = velocities[ib + 1];
+            const vzi = velocities[ib + 2];
 
-            const rhoi = this.densities[i];
-            const Pi = this.pressures[i];
+            const rhoi = densities[i];
+            const Pi = pressures[i];
 
             let ax = 0.0;
-            let ay = this.gravity;
+            let ay = gravity;
             let az = 0.0;
 
-            this.grid.forEachNeighbor(this.positions, i, (j) => {
-                if (i === j) {
-                    return;
-                }
+            // ----------------------------------------------------
+            // Particle grid cell
+            // ----------------------------------------------------
 
-                const jb = j * 3;
+            let ix = Math.floor((xi - gridMinX) * invCellSize);
+            let iy = Math.floor((yi - gridMinY) * invCellSize);
+            let iz = Math.floor((zi - gridMinZ) * invCellSize);
 
-                const rx = xi - this.positions[jb];
-                const ry = yi - this.positions[jb + 1];
-                const rz = zi - this.positions[jb + 2];
+            ix = Math.max(0, Math.min(cellsX - 1, ix));
+            iy = Math.max(0, Math.min(cellsY - 1, iy));
+            iz = Math.max(0, Math.min(cellsZ - 1, iz));
 
-                const r2 = rx * rx + ry * ry + rz * rz;
+            // ----------------------------------------------------
+            // Neighbor cell range
+            // ----------------------------------------------------
 
-                if (r2 <= 0.000001 || r2 >= this.h2) {
-                    return;
-                }
+            const minX = Math.max(0, ix - 1);
+            const maxX = Math.min(cellsX - 1, ix + 1);
 
-                const r = Math.sqrt(r2);
+            const minY = Math.max(0, iy - 1);
+            const maxY = Math.min(cellsY - 1, iy + 1);
 
-                const rhoj = this.densities[j];
-                const Pj = this.pressures[j];
+            const minZ = Math.max(0, iz - 1);
+            const maxZ = Math.min(cellsZ - 1, iz + 1);
 
-                // Pressure force
-                const pressureTerm = Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
+            // ----------------------------------------------------
+            // Neighbor traversal
+            // ----------------------------------------------------
 
-                const gradScale = this.spikyGrad * (this.h - r) * (this.h - r) / r;
+            for (let z = minZ; z <= maxZ; z++) {
+                const zOffset = z * strideZ;
 
-                const gradX = gradScale * rx;
-                const gradY = gradScale * ry;
-                const gradZ = gradScale * rz;
+                for (let y = minY; y <= maxY; y++) {
+                    const yzOffset = zOffset + y * strideY;
 
-                ax += -this.mass * pressureTerm * gradX;
-                ay += -this.mass * pressureTerm * gradY;
-                az += -this.mass * pressureTerm * gradZ;
+                    for (let x = minX; x <= maxX; x++) {
+                        let j = cellHeads[yzOffset + x];
 
-                // Viscosity force
-                const lap = this.viscLap * (this.h - r);
+                        while (j !== -1) {
+                            if (j !== i) {
+                                const jb = j * 3;
 
-                ax += this.viscosity * this.mass * (this.velocities[jb] - vxi) / rhoj * lap;
+                                const rx = xi - positions[jb];
+                                const ry = yi - positions[jb + 1];
+                                const rz = zi - positions[jb + 2];
 
-                ay += this.viscosity * this.mass * (this.velocities[jb + 1] - vyi) / rhoj * lap;
+                                const r2 = rx * rx + ry * ry + rz * rz;
 
-                az += this.viscosity * this.mass * (this.velocities[jb + 2] - vzi) / rhoj * lap;
+                                if (r2 > 0.000001 && r2 < h2) {
+                                    const r = Math.sqrt(r2);
 
-                // Weak surface cohesion
-                const surfaceFactor = Math.max(this.surfaceFactors[i], this.surfaceFactors[j]);
+                                    const rhoj = densities[j];
+                                    const Pj = pressures[j];
 
-                if (surfaceFactor > 0.0) {
-                    const q = r / this.h;
+                                    // ----------------------------
+                                    // Pressure
+                                    // ----------------------------
 
-                    const cohesionWeight = this.computeCohesionWeight(q);
+                                    if (enablePressure) {
+                                        const pressureTerm =
+                                            Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
 
-                    if (cohesionWeight > 0.0) {
-                        const invR = 1.0 / r;
+                                        const hMinusR = h - r;
 
-                        const cohesionAcceleration = this.surfaceTension * this.mass * surfaceFactor * cohesionWeight / Math.max(rhoj, 0.0001);
+                                        const gradScale = spikyGrad * hMinusR * hMinusR / r;
 
-                        ax += cohesionAcceleration * (-rx * invR);
+                                        const gradX = gradScale * rx;
+                                        const gradY = gradScale * ry;
+                                        const gradZ = gradScale * rz;
 
-                        ay += cohesionAcceleration * (-ry * invR);
+                                        ax += -mass * pressureTerm * gradX;
+                                        ay += -mass * pressureTerm * gradY;
+                                        az += -mass * pressureTerm * gradZ;
+                                    }
 
-                        az += cohesionAcceleration * (-rz * invR);
+                                    // ----------------------------
+                                    // Viscosity
+                                    // ----------------------------
+
+                                    if (enableViscosity) {
+                                        const lap = viscLap * (h - r);
+
+                                        const factor = viscosity * mass * lap / rhoj;
+
+                                        ax += factor * (velocities[jb] - vxi);
+                                        ay += factor * (velocities[jb + 1] - vyi);
+                                        az += factor * (velocities[jb + 2] - vzi);
+                                    }
+
+                                    // ----------------------------
+                                    // Cohesion
+                                    // ----------------------------
+
+                                    if (enableCohesion) {
+                                        const surfaceFactor = Math.max(surfaceFactors[i],  surfaceFactors[j]);
+
+                                        if (surfaceFactor > 0.0) {
+                                            const q = r / h;
+
+                                            const cohesionWeight = this.computeCohesionWeight(q);
+
+                                            if (cohesionWeight > 0.0) {
+                                                const invR = 1.0 / r;
+
+                                                const cohesionAcceleration =
+                                                    surfaceTension *
+                                                    mass *
+                                                    surfaceFactor *
+                                                    cohesionWeight /
+                                                    Math.max(rhoj, 0.0001);
+
+                                                ax += cohesionAcceleration * (-rx * invR);
+                                                ay += cohesionAcceleration * (-ry * invR);
+                                                az += cohesionAcceleration * (-rz * invR);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Always advance exactly once.
+                            j = particleNext[j];
+                        }
                     }
                 }
+            }
 
-            });
-
-            this.accelerations[ib] = ax;
-            this.accelerations[ib + 1] = ay;
-            this.accelerations[ib + 2] = az;
+            accelerations[ib] = ax;
+            accelerations[ib + 1] = ay;
+            accelerations[ib + 2] = az;
         }
     }
 
@@ -474,5 +681,60 @@ export class SPHSolver {
         return 4.0 * t * (1.0 - t);
     }
 
+    // debug helper
+    setForceBenchmarkOptions(pressure, viscosity, cohesion)
+    {
+        this.enablePressureForce = pressure;
+        this.enableViscosityForce = viscosity;
+        this.enableCohesionForce = cohesion;
+    }
 
+    benchmarkDensityPass(iterations = 100) {
+
+        this.grid.build(
+            this.positions,
+            this.numParticles
+        );
+
+        for (let i = 0; i < 5; ++i) {
+            this.computeDensityAndPressure();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; ++i) {
+            this.computeDensityAndPressure();
+        }
+
+        return (performance.now() - start) / iterations;
+    }
+
+    benchmarkForcePass(iterations = 50) {
+
+        // Ensure the spatial structure and density values
+        // correspond to the current frozen particle state.
+
+        this.grid.build(
+            this.positions,
+            this.numParticles
+        );
+
+        this.computeDensityAndPressure();
+
+        // Warm-up.
+        // Gives the JS engine a chance to optimize the hot path.
+
+        for (let i = 0; i < 5; ++i) {
+            this.computeForces();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; ++i) {
+            this.computeForces();
+        }
+
+        const elapsed = performance.now() - start;
+        return elapsed / iterations;
+    }
 }

@@ -139,19 +139,72 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     width: window.innerWidth,
     height: window.innerHeight,
     pixelRatio: 1.0,
+    fluidResolutionScale: 0.5,
 
-    blurIterations: 9
+    blurIterations: 4
 });
 
+screenSpaceFluidRenderer.setFluidResolutionScale(screenSpaceFluidRenderer.fluidResolutionScale);
 // ------------------------------------------------------------
 // Debug panel
 // ------------------------------------------------------------
 
 const debugPanel = document.getElementById("debug-panel");
 
+const drawingBufferSize  = new THREE.Vector2();
+
 let frameCounter = 0;
 let fpsTimer = 0;
+
 let displayedFps = 0;
+let displayedFrameMs = 0.0;
+
+const displayedProfile = {
+    gridMs: 0.0,
+    densityMs: 0.0,
+    forcesMs: 0.0,
+    integrationMs: 0.0,
+    solverMs: 0.0,
+    renderPrepMs: 0.0,
+    renderSubmitMs: 0.0
+};
+
+function smoothProfileValue(current, sample) {
+    const alpha = 0.10;
+
+    if (current === 0.0) {
+        return sample;
+    }
+
+    return current + (sample - current) * alpha;
+}
+
+const benchmarkActions = {
+
+    runForceBenchmark: () => {
+
+        const result = solver.benchmarkForcePass(100);
+
+        console.log(
+            `[Force Benchmark] ` +
+            `P=${solver.enablePressureForce} ` +
+            `V=${solver.enableViscosityForce} ` +
+            `C=${solver.enableCohesionForce} ` +
+            `Average=${result.toFixed(3)} ms`
+        );
+    }
+};
+
+benchmarkActions.runDensityBenchmark = () => {
+
+    const result =
+        solver.benchmarkDensityPass(100);
+
+    console.log(
+        `[Density Benchmark] ` +
+        `Average=${result.toFixed(3)} ms`
+    );
+};
 
 // ------------------------------------------------------------
 // GUI
@@ -253,7 +306,16 @@ presetFolder.open();
 
 const renderSettings = {
     mode: "Screen-Space Fluid",
-    visualRadiusScale: 0.45
+    visualRadiusScale: 0.45,
+    fluidResolutionScale: 0.5
+};
+
+const benchmarkSettings = {
+    runSimulation: true,
+
+    pressureForce: true,
+    viscosityForce: true,
+    cohesionForce: true
 };
 
 function syncScreenSpaceParticleRadius() {
@@ -269,6 +331,52 @@ gui
     .add(renderSettings, "mode", renderModes)
     .name("Render Mode")
     .onChange(updateRenderMode);
+
+// Temporary debug folder section
+const benchmarkFolder = gui.addFolder("Benchmark");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "runSimulation"
+    )
+    .name("Run Simulation");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "pressureForce"
+    )
+    .name("Pressure");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "viscosityForce"
+    )
+    .name("Viscosity");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "cohesionForce"
+    )
+    .name("Cohesion");
+
+benchmarkFolder
+    .add(
+        benchmarkActions,
+        "runForceBenchmark"
+    )
+    .name("Benchmark Forces");
+
+benchmarkFolder
+    .add(
+        benchmarkActions,
+        "runDensityBenchmark"
+    )
+    .name("Benchmark Density");
+// ---------------------------------------
 
 function updateRenderMode() {
     const useParticleRenderer =
@@ -422,6 +530,23 @@ screenSpaceFolder
         1
     )
     .name("Blur Iterations");
+
+screenSpaceFolder
+    .add(
+        renderSettings,
+        "fluidResolutionScale",
+        0.25,
+        1.0,
+        0.05
+    )
+    .name("Fluid Resolution")
+    .onFinishChange((value) => {
+
+        screenSpaceFluidRenderer
+            .setFluidResolutionScale(
+                value
+            );
+    });
 
 screenSpaceFolder
     .add(
@@ -644,6 +769,7 @@ const maxFrameDt = 0.05;
 function animate(currentTime) {
     requestAnimationFrame(animate);
 
+    let refreshDebugPanel = false;
 
     const rawDeltaSeconds = (currentTime - previousTime) * 0.001;
     const physicsDeltaSeconds = Math.min(rawDeltaSeconds, maxFrameDt);
@@ -658,18 +784,92 @@ function animate(currentTime) {
 
     if (fpsTimer >= 0.25) {
         displayedFps = Math.round(frameCounter / fpsTimer);
+        displayedFrameMs = (fpsTimer * 1000.0) / frameCounter;
+
         frameCounter = 0;
         fpsTimer = 0;
+
+        refreshDebugPanel = true;
     }
 
     updateMouseForceRay();
 
+    // ------------------------------------------------------------
     // Solver Update
-    for (let i = 0; i < solver.substeps; i++) {
-        solver.step(solver.fixedDt / solver.substeps);
+    // ------------------------------------------------------------
+
+    let gridMs = 0.0;
+    let densityMs = 0.0;
+    let forcesMs = 0.0;
+    let integrationMs = 0.0;
+    let solverMs = 0.0;
+
+    if (benchmarkSettings.runSimulation) {
+
+        for (let i = 0; i < solver.substeps; i++) {
+
+            // Temporary forces debug
+            solver.setForceBenchmarkOptions(
+                benchmarkSettings.pressureForce,
+                benchmarkSettings.viscosityForce,
+                benchmarkSettings.cohesionForce
+            );
+
+            solver.step(solver.fixedDt / solver.substeps);
+
+            gridMs += solver.profile.gridMs;
+            densityMs += solver.profile.densityMs;
+            forcesMs += solver.profile.forcesMs;
+            integrationMs += solver.profile.integrationMs;
+            solverMs += solver.profile.totalMs;
+        }
+
+        displayedProfile.gridMs =
+            smoothProfileValue(
+                displayedProfile.gridMs,
+                gridMs
+            );
+
+        displayedProfile.densityMs =
+            smoothProfileValue(
+                displayedProfile.densityMs,
+                densityMs
+            );
+
+        displayedProfile.forcesMs =
+            smoothProfileValue(
+                displayedProfile.forcesMs,
+                forcesMs
+            );
+
+        displayedProfile.integrationMs =
+            smoothProfileValue(
+                displayedProfile.integrationMs,
+                integrationMs
+            );
+
+        displayedProfile.solverMs =
+            smoothProfileValue(
+                displayedProfile.solverMs,
+                solverMs
+            );
+    }
+    else {
+
+        displayedProfile.gridMs = 0.0;
+        displayedProfile.densityMs = 0.0;
+        displayedProfile.forcesMs = 0.0;
+        displayedProfile.integrationMs = 0.0;
+        displayedProfile.solverMs = 0.0;
     }
 
+    // ------------------------------------------------------------
+    // Update particle renderer
+    // ------------------------------------------------------------
+
     const useParticles = renderSettings.mode === "Water Particles";
+
+    const renderPrepStart = performance.now();
 
     if (useParticles) {
         particleRenderer.update(currentTime * 0.001);
@@ -677,16 +877,62 @@ function animate(currentTime) {
         screenSpaceFluidRenderer.update();
     }
 
-    debugPanel.innerHTML = `
+    const renderPrepMs = performance.now() - renderPrepStart;
+    displayedProfile.renderPrepMs = smoothProfileValue(displayedProfile.renderPrepMs, renderPrepMs);
+
+    // ------------------------------------------------------------
+    // Update Debug
+    // ------------------------------------------------------------
+
+    if (refreshDebugPanel) {
+
+        renderer.getDrawingBufferSize(drawingBufferSize);
+        const canvasCssWidth = renderer.domElement.clientWidth;
+        const canvasCssHeight = renderer.domElement.clientHeight;
+
+        debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
         FPS: ${displayedFps}<br>
+        Frame: ${displayedFrameMs.toFixed(2)} ms<br>
+        <br>
+        
+        <b>CPU Solver</b><br>
+        Grid: ${displayedProfile.gridMs.toFixed(2)} ms<br>
+        Density: ${displayedProfile.densityMs.toFixed(2)} ms<br>
+        Forces: ${displayedProfile.forcesMs.toFixed(2)} ms<br>
+        Integration: ${displayedProfile.integrationMs.toFixed(2)} ms<br>
+        Solver Total: ${displayedProfile.solverMs.toFixed(2)} ms<br>
+        <br>
+        
+        <b>Rendering</b><br>
+        Render Prep: ${displayedProfile.renderPrepMs.toFixed(2)} ms<br>
+        Render Submit: ${displayedProfile.renderSubmitMs.toFixed(2)} ms<br>
+        Mode: ${renderSettings.mode}<br>
+        Blur: ${screenSpaceFluidRenderer.blurIterations}<br>
+        <br>
+        
+        <b>Resolution</b><br>
+        Canvas CSS: ${canvasCssWidth} × ${canvasCssHeight}<br>
+        Drawing Buffer: ${drawingBufferSize.x} × ${drawingBufferSize.y}<br>
+        Scene RT: ${screenSpaceFluidRenderer.sceneTargetWidth} × ${screenSpaceFluidRenderer.sceneTargetHeight}<br>
+        Fluid RT: ${screenSpaceFluidRenderer.fluidTargetWidth} × ${screenSpaceFluidRenderer.fluidTargetHeight}<br>
+        Renderer DPR: ${renderer.getPixelRatio().toFixed(2)}<br>
+        Fluid Pixel Ratio: ${screenSpaceFluidRenderer.pixelRatio.toFixed(2)}<br>
+        Fluid Scale: ${screenSpaceFluidRenderer.fluidResolutionScale.toFixed(2)}<br>
+        <br>
+        
         fixedDt: ${solver.fixedDt.toFixed(4)}<br>
-        h: ${solver.h.toFixed(3)}<br>
-        stiffness: ${solver.stiffness.toFixed(2)}<br>
-        viscosity: ${solver.viscosity.toFixed(3)}
+        h: ${solver.h.toFixed(3)}
     `;
+    }
 
+    // update mouse controls
     controls.update();
+
+    // ------------------------------------------------------------
+    // Update Renderer
+    // ------------------------------------------------------------
+    const renderStart = performance.now();
 
     if (useParticles) {
         renderer.setRenderTarget(null);
@@ -694,6 +940,9 @@ function animate(currentTime) {
     } else {
         screenSpaceFluidRenderer.render(renderer, scene, camera);
     }
+
+    const renderSubmitMs = performance.now() - renderStart;
+    displayedProfile.renderSubmitMs = smoothProfileValue(displayedProfile.renderSubmitMs, renderSubmitMs);
 }
 
 requestAnimationFrame(animate);
