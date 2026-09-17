@@ -67,7 +67,7 @@ export class SPHSolver {
 
         this.surfaceFactors = new Float32Array(this.numParticles);
 
-        this.grid = new SpatialHashGrid3D(this.h);
+        this.grid = new SpatialHashGrid3D(this.h, this.boxMin, this.boxMax);
 
         // debug forces
         this.enablePressureForce = true;
