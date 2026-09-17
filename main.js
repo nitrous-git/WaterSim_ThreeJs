@@ -260,6 +260,23 @@ benchmarkActions.runDensityBenchmark = () => {
     );
 };
 
+benchmarkActions.runPairBenchmark =
+    () => {
+
+        const result =
+            solver.benchmarkPairBuild(
+                100
+            );
+
+        console.log(
+            `[Pair Benchmark] ` +
+            `Average=${result.averageMs.toFixed(3)} ms ` +
+            `Pairs=${result.pairCount} ` +
+            `AvgNeighbors=${result.averageNeighbors.toFixed(2)} ` +
+            `Capacity=${result.capacity}`
+        );
+    };
+
 // ------------------------------------------------------------
 // GUI
 // ------------------------------------------------------------
@@ -430,6 +447,13 @@ benchmarkFolder
         "runDensityBenchmark"
     )
     .name("Benchmark Density");
+
+benchmarkFolder
+    .add(
+        benchmarkActions,
+        "runPairBenchmark"
+    )
+    .name("Benchmark Pairs");
 // ---------------------------------------
 
 function updateRenderMode() {

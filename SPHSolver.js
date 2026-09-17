@@ -69,6 +69,13 @@ export class SPHSolver {
 
         this.surfaceFactors = new Float32Array(this.numParticles);
 
+        // Unique SPH neighbor pairs
+        this.pairCount = 0;
+        this.pairCapacity =  Math.max(1024, this.numParticles * 32);
+        this.pairA = new Int32Array(this.pairCapacity);
+        this.pairB = new Int32Array(this.pairCapacity);
+
+
         this.grid = new SpatialHashGrid3D(this.h, this.boxMin, this.boxMax);
 
         // debug forces
@@ -139,6 +146,7 @@ export class SPHSolver {
 
         this.densities.fill(0.0);
         this.pressures.fill(0.0);
+        this.pairCount = 0;
     }
 
     step(dt) {
@@ -683,7 +691,237 @@ export class SPHSolver {
         return 4.0 * t * (1.0 - t);
     }
 
+    // ----------------------------------------------------
+    // Neighbor helper
+    // ----------------------------------------------------
+    ensurePairCapacity(requiredCapacity) {
+        if (requiredCapacity <= this.pairCapacity) {
+            return;
+        }
+
+        let newCapacity = Math.max(1024, this.pairCapacity);
+
+        while (newCapacity < requiredCapacity) {
+            newCapacity *= 2;
+        }
+
+        const newPairA = new Int32Array(newCapacity);
+        const newPairB = new Int32Array(newCapacity);
+
+        newPairA.set(this.pairA.subarray(0, this.pairCount));
+        newPairB.set(this.pairB.subarray(0, this.pairCount));
+
+        this.pairA = newPairA;
+        this.pairB = newPairB;
+        this.pairCapacity = newCapacity;
+    }
+
+    buildUniqueNeighborPairs() {
+        const positions = this.positions;
+        const grid = this.grid;
+
+        const cellHeads = grid.cellHeads;
+        const particleNext = grid.particleNext;
+
+        const cellsX = grid.cellsX;
+        const cellsY = grid.cellsY;
+        const cellsZ = grid.cellsZ;
+
+        const strideY = cellsX;
+        const strideZ = cellsX * cellsY;
+
+        const h2 = this.h2;
+
+        let pairCount = 0;
+        let pairA = this.pairA;
+        let pairB = this.pairB;
+        let pairCapacity = this.pairCapacity;
+
+        // --------------------------------------------------------
+        // Traverse each grid cell once
+        // --------------------------------------------------------
+
+        for (let z = 0; z < cellsZ; z++) {
+            const zOffset = z * strideZ;
+
+            for (let y = 0; y < cellsY; y++) {
+                const yzOffset = zOffset + y * strideY;
+
+                for (let x = 0; x < cellsX; x++) {
+                    const cell = yzOffset + x;
+                    const head = cellHeads[cell];
+
+                    if (head === -1) {
+                        continue;
+                    }
+
+                    // ------------------------------------------------
+                    // 1. Pairs inside the same cell
+                    // ------------------------------------------------
+                    //
+                    // Start j at particleNext[i], so:
+                    //
+                    // (i, j) is visited once
+                    // (j, i) is never visited
+                    // (i, i) is never visited
+
+                    let i = head;
+
+                    while (i !== -1) {
+                        const ib = i * 3;
+
+                        const xi = positions[ib];
+                        const yi = positions[ib + 1];
+                        const zi = positions[ib + 2];
+
+                        let j = particleNext[i];
+
+                        while (j !== -1) {
+                            const jb = j * 3;
+
+                            const dx = xi - positions[jb];
+                            const dy = yi - positions[jb + 1];
+                            const dz = zi - positions[jb + 2];
+
+                            const r2 = dx * dx + dy * dy + dz * dz;
+
+                            if (r2 < h2) {
+                                if (pairCount >= pairCapacity) {
+                                    this.pairCount = pairCount;
+                                    this.ensurePairCapacity(pairCount + 1);
+
+                                    pairA = this.pairA;
+                                    pairB = this.pairB;
+                                    pairCapacity = this.pairCapacity;
+                                }
+
+                                pairA[pairCount] = i;
+                                pairB[pairCount] = j;
+                                pairCount++;
+                            }
+
+                            j = particleNext[j];
+                        }
+
+                        i = particleNext[i];
+                    }
+
+                    // ------------------------------------------------
+                    // 2. Forward neighbor cells only
+                    // ------------------------------------------------
+                    //
+                    // Half of the 26-cell neighborhood:
+                    //
+                    // dz = 0
+                    //   dy = 0 : dx = +1
+                    //   dy = +1: dx = -1, 0, +1
+                    //
+                    // dz = +1
+                    //   dy = -1, 0, +1
+                    //   dx = -1, 0, +1
+                    //
+                    // 1 + 3 + 9 = 13 neighbor cells.
+                    //
+                    // Therefore A -> B is processed,
+                    // but B -> A never is.
+
+                    for (let cellDz = 0; cellDz <= 1; cellDz++) {
+                        const neighborZ = z + cellDz;
+
+                        if (neighborZ >= cellsZ) {
+                            continue;
+                        }
+
+                        const minDy = cellDz === 0 ? 0 : -1;
+
+                        for (let cellDy = minDy; cellDy <= 1; cellDy++) {
+                            const neighborY = y + cellDy;
+
+                            if (neighborY < 0 || neighborY >= cellsY) {
+                                continue;
+                            }
+
+                            const minDx = (cellDz === 0 && cellDy === 0) ? 1 : -1;
+
+                            for (let cellDx = minDx; cellDx <= 1; cellDx++) {
+                                const neighborX = x + cellDx;
+
+                                if (neighborX < 0 || neighborX >= cellsX) {
+                                    continue;
+                                }
+
+                                const neighborCell =
+                                    neighborX +
+                                    neighborY * strideY +
+                                    neighborZ * strideZ;
+
+                                const neighborHead = cellHeads[neighborCell];
+
+                                if (neighborHead === -1) {
+                                    continue;
+                                }
+
+                                // ------------------------------------
+                                // Cross-cell particle pairs
+                                // ------------------------------------
+
+                                let i = head;
+
+                                while (i !== -1) {
+                                    const ib = i * 3;
+
+                                    const xi = positions[ib];
+                                    const yi = positions[ib + 1];
+                                    const zi = positions[ib + 2];
+
+                                    let j = neighborHead;
+
+                                    while (j !== -1) {
+                                        const jb = j * 3;
+
+                                        const dx = xi - positions[jb];
+                                        const dy = yi - positions[jb + 1];
+                                        const dz = zi - positions[jb + 2];
+
+                                        const r2 = dx * dx + dy * dy + dz * dz;
+
+                                        if (r2 < h2) {
+                                            if (pairCount >= pairCapacity) {
+                                                this.pairCount = pairCount;
+                                                this.ensurePairCapacity(pairCount + 1);
+
+                                                pairA = this.pairA;
+                                                pairB = this.pairB;
+                                                pairCapacity = this.pairCapacity;
+                                            }
+
+                                            pairA[pairCount] = i;
+                                            pairB[pairCount] = j;
+                                            pairCount++;
+                                        }
+
+                                        j = particleNext[j];
+                                    }
+
+                                    i = particleNext[i];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        this.pairCount = pairCount;
+
+        return pairCount;
+    }
+
+
+    // ----------------------------------------------------
     // debug helper
+    // ----------------------------------------------------
+
     setForceBenchmarkOptions(pressure, viscosity, cohesion)
     {
         this.enablePressureForce = pressure;
@@ -739,4 +977,39 @@ export class SPHSolver {
         const elapsed = performance.now() - start;
         return elapsed / iterations;
     }
+
+    benchmarkPairBuild(iterations = 100) {
+        // Frozen-state benchmark:
+        // build the grid once and repeatedly benchmark only
+        // pair generation.
+
+        this.grid.build(this.positions, this.numParticles);
+
+        // Warm-up
+        for (let i = 0; i < 5; i++) {
+            this.buildUniqueNeighborPairs();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; i++) {
+            this.buildUniqueNeighborPairs();
+        }
+
+        const elapsed = performance.now() - start;
+        const averageMs = elapsed / iterations;
+
+        const averageNeighbors =
+            this.numParticles > 0
+                ? (this.pairCount * 2) / this.numParticles
+                : 0.0;
+
+        return {
+            averageMs,
+            pairCount: this.pairCount,
+            averageNeighbors,
+            capacity: this.pairCapacity
+        };
+    }
+
 }
