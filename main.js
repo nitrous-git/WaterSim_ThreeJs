@@ -149,6 +149,8 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
 
 const debugPanel = document.getElementById("debug-panel");
 
+const drawingBufferSize  = new THREE.Vector2();
+
 let frameCounter = 0;
 let fpsTimer = 0;
 
@@ -864,11 +866,16 @@ function animate(currentTime) {
 
     if (refreshDebugPanel) {
 
+        renderer.getDrawingBufferSize(drawingBufferSize);
+        const canvasCssWidth = renderer.domElement.clientWidth;
+        const canvasCssHeight = renderer.domElement.clientHeight;
+
         debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
         FPS: ${displayedFps}<br>
         Frame: ${displayedFrameMs.toFixed(2)} ms<br>
         <br>
+        
         <b>CPU Solver</b><br>
         Grid: ${displayedProfile.gridMs.toFixed(2)} ms<br>
         Density: ${displayedProfile.densityMs.toFixed(2)} ms<br>
@@ -876,12 +883,22 @@ function animate(currentTime) {
         Integration: ${displayedProfile.integrationMs.toFixed(2)} ms<br>
         Solver Total: ${displayedProfile.solverMs.toFixed(2)} ms<br>
         <br>
+        
         <b>Rendering</b><br>
         Render Prep: ${displayedProfile.renderPrepMs.toFixed(2)} ms<br>
         Render Submit: ${displayedProfile.renderSubmitMs.toFixed(2)} ms<br>
         Mode: ${renderSettings.mode}<br>
         Blur: ${screenSpaceFluidRenderer.blurIterations}<br>
         <br>
+        
+        <b>Resolution</b><br>
+        Canvas CSS: ${canvasCssWidth} × ${canvasCssHeight}<br>
+        Drawing Buffer: ${drawingBufferSize.x} × ${drawingBufferSize.y}<br>
+        Fluid RT: ${screenSpaceFluidRenderer.targetWidth} × ${screenSpaceFluidRenderer.targetHeight}<br>
+        Renderer DPR: ${renderer.getPixelRatio().toFixed(2)}<br>
+        Fluid Pixel Ratio: ${screenSpaceFluidRenderer.pixelRatio.toFixed(2)}<br>
+        <br>
+        
         fixedDt: ${solver.fixedDt.toFixed(4)}<br>
         h: ${solver.h.toFixed(3)}
     `;
