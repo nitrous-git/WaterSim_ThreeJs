@@ -94,28 +94,28 @@ scene.add(dirLight);
 // };
 
 // 5808 particle count
-// const simulationSize = {
-//     countX: 22,
-//     countY: 12,
-//     countZ: 22,
-//
-//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
-//     boxMax: new THREE.Vector3(1.35, 2.0, 2.0),
-//
-//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
-// };
-
-// 7488 particle count
 const simulationSize = {
-    countX: 24,
-    countY: 13,
-    countZ: 24,
+    countX: 22,
+    countY: 12,
+    countZ: 22,
 
     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
-    boxMax: new THREE.Vector3(1.50, 2.15, 2.20),
+    boxMax: new THREE.Vector3(1.35, 1.4, 2.0),
 
     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
 };
+
+// 7488 particle count
+// const simulationSize = {
+//     countX: 24,
+//     countY: 13,
+//     countZ: 24,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.50, 2.15, 2.20),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
 
 // ------------------------------------------------------------
 // Container
