@@ -215,6 +215,7 @@ let displayedFrameMs = 0.0;
 
 const displayedProfile = {
     gridMs: 0.0,
+    pairBuildMs: 0.0,
     densityMs: 0.0,
     forcesMs: 0.0,
     integrationMs: 0.0,
@@ -877,6 +878,7 @@ function animate(currentTime) {
     // ------------------------------------------------------------
 
     let gridMs = 0.0;
+    let pairBuildMs = 0.0;
     let densityMs = 0.0;
     let forcesMs = 0.0;
     let integrationMs = 0.0;
@@ -896,6 +898,7 @@ function animate(currentTime) {
             solver.step(solver.fixedDt / solver.substeps);
 
             gridMs += solver.profile.gridMs;
+            pairBuildMs += solver.profile.pairBuildMs;
             densityMs += solver.profile.densityMs;
             forcesMs += solver.profile.forcesMs;
             integrationMs += solver.profile.integrationMs;
@@ -906,6 +909,12 @@ function animate(currentTime) {
             smoothProfileValue(
                 displayedProfile.gridMs,
                 gridMs
+            );
+
+        displayedProfile.pairBuildMs =
+            smoothProfileValue(
+                displayedProfile.pairBuildMs,
+                pairBuildMs
             );
 
         displayedProfile.densityMs =
@@ -935,6 +944,7 @@ function animate(currentTime) {
     else {
 
         displayedProfile.gridMs = 0.0;
+        displayedProfile.pairBuildMs = 0.0;
         displayedProfile.densityMs = 0.0;
         displayedProfile.forcesMs = 0.0;
         displayedProfile.integrationMs = 0.0;
@@ -976,6 +986,7 @@ function animate(currentTime) {
         
         <b>CPU Solver</b><br>
         Grid: ${displayedProfile.gridMs.toFixed(2)} ms<br>
+        Pair Build: ${displayedProfile.pairBuildMs.toFixed(2)} ms<br>
         Density: ${displayedProfile.densityMs.toFixed(2)} ms<br>
         Forces: ${displayedProfile.forcesMs.toFixed(2)} ms<br>
         Integration: ${displayedProfile.integrationMs.toFixed(2)} ms<br>

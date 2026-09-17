@@ -67,6 +67,8 @@ export class SPHSolver {
         this.densities = new Float32Array(this.numParticles);
         this.pressures = new Float32Array(this.numParticles);
 
+        this.densityScratch = new Float64Array(this.numParticles);
+
         this.surfaceFactors = new Float32Array(this.numParticles);
 
         // Unique SPH neighbor pairs
@@ -87,6 +89,7 @@ export class SPHSolver {
 
         this.profile = {
             gridMs: 0.0,
+            pairBuildMs: 0.0,
             densityMs: 0.0,
             forcesMs: 0.0,
             integrationMs: 0.0,
@@ -163,6 +166,16 @@ export class SPHSolver {
         this.profile.gridMs = performance.now() - phaseStart;
 
         // --------------------------------------------------------
+        // Unique interacting pairs
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
+        this.buildUniqueNeighborPairs();
+
+        this.profile.pairBuildMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
         // Density / pressure
         // --------------------------------------------------------
 
@@ -207,94 +220,89 @@ export class SPHSolver {
         const positions = this.positions;
         const densities = this.densities;
         const pressures = this.pressures;
+        const surfaceFactors = this.surfaceFactors;
+        const densityScratch = this.densityScratch;
 
-        const grid = this.grid;
-
-        const cellHeads = grid.cellHeads;
-        const particleNext = grid.particleNext;
-
-        const cellsX = grid.cellsX;
-        const cellsY = grid.cellsY;
-        const cellsZ = grid.cellsZ;
-
-        const strideY = cellsX;
-        const strideZ = cellsX * cellsY;
-
-        const invCellSize = grid.invCellSize;
-
-        const gridMinX = grid.boxMin.x;
-        const gridMinY = grid.boxMin.y;
-        const gridMinZ = grid.boxMin.z;
+        const pairA = this.pairA;
+        const pairB = this.pairB;
+        const pairCount = this.pairCount;
 
         const h2 = this.h2;
-        const mass = this.mass;
-        const poly6 = this.poly6;
+        const kernelScale = this.mass * this.poly6;
 
+        // --------------------------------------------------------
+        // Self density
+        // --------------------------------------------------------
+        //
+        // The old particle-centric density loop included i == j.
+        //
+        // Since the pair list contains only distinct pairs,
+        // explicitly seed every particle with W(0).
+
+        const selfDensity = kernelScale * h2 * h2 * h2;
+
+        densityScratch.fill(selfDensity);
+
+        // --------------------------------------------------------
+        // Pair density
+        // --------------------------------------------------------
+        //
+        // Every stored pair contributes the same Poly6 value
+        // to both particles.
+
+        for (let k = 0; k < pairCount; k++) {
+            const i = pairA[k];
+            const j = pairB[k];
+
+            const ib = i * 3;
+            const jb = j * 3;
+
+            const dx = positions[ib] - positions[jb];
+            const dy = positions[ib + 1] - positions[jb + 1];
+            const dz = positions[ib + 2] - positions[jb + 2];
+
+            const r2 = dx * dx + dy * dy + dz * dz;
+
+            // No support-radius test is required here.
+            //
+            // buildUniqueNeighborPairs() already guarantees:
+            //
+            //     r2 < h2
+            //
+            // and positions have not changed since the pair list
+            // was generated.
+
+            const diff = h2 - r2;
+            const contribution = kernelScale * diff * diff * diff;
+
+            densityScratch[i] += contribution;
+            densityScratch[j] += contribution;
+        }
+
+        // --------------------------------------------------------
+        // Pressure + surface classification
+        // --------------------------------------------------------
+
+        const restDensity = this.restDensity;
+        const stiffness = this.stiffness;
+        const gamma = this.gamma;
+        const surfaceDensityRange = this.surfaceDensityRange;
 
         for (let i = 0; i < this.numParticles; i++) {
-            const ib = i * 3;
-            const xi = positions[ib];
-            const yi = positions[ib + 1];
-            const zi = positions[ib + 2];
-
-            let ix = Math.floor((xi - gridMinX) * invCellSize);
-            let iy = Math.floor((yi - gridMinY) * invCellSize);
-            let iz = Math.floor((zi - gridMinZ) * invCellSize);
-
-            ix = Math.max(0, Math.min(cellsX - 1, ix));
-            iy = Math.max(0, Math.min(cellsY - 1, iy));
-            iz = Math.max(0, Math.min(cellsZ - 1, iz));
-
-            const minX = Math.max(0, ix - 1);
-            const maxX = Math.min(cellsX - 1, ix + 1);
-
-            const minY = Math.max(0, iy - 1);
-            const maxY = Math.min(cellsY - 1, iy + 1);
-
-            const minZ = Math.max(0, iz - 1);
-            const maxZ = Math.min(cellsZ - 1, iz + 1);
-
-            let density = 0.0;
-
-            for (let z = minZ; z <= maxZ; z++) {
-                const zOffset = z * strideZ;
-
-                for (let y = minY; y <= maxY; y++) {
-                    const yzOffset = zOffset + y * strideY;
-
-                    for (let x = minX; x <= maxX; x++) {
-                        let j = cellHeads[yzOffset + x];
-
-                        while (j !== -1) {
-                            const jb = j * 3;
-
-                            const dx = xi - positions[jb];
-                            const dy = yi - positions[jb + 1];
-                            const dz = zi - positions[jb + 2];
-
-                            const r2 = dx * dx + dy * dy + dz * dz;
-
-                            if (r2 < h2) {
-                                const diff = h2 - r2;
-                                density += mass * poly6 * diff * diff * diff;
-                            }
-
-                            j = particleNext[j];
-                        }
-                    }
-                }
-            }
+            const density = densityScratch[i];
 
             densities[i] = density;
 
-            const ratio = density / this.restDensity;
-            const pressure = this.stiffness * (Math.pow(ratio, this.gamma) - 1.0);
+            const ratio = density / restDensity;
+
+            const pressure = stiffness * (Math.pow(ratio, gamma) - 1.0);
 
             pressures[i] = Math.max(pressure, 0.0);
 
-            // Surface Factor
-            const densityDeficit = (this.restDensity - density) / (this.restDensity * this.surfaceDensityRange);
-            this.surfaceFactors[i] = Math.min(1.0, Math.max(0.0, densityDeficit));
+            const densityDeficit =
+                (restDensity - density) / (restDensity * surfaceDensityRange);
+
+            surfaceFactors[i] = Math.min(1.0, Math.max(0.0, densityDeficit));
         }
     }
 
@@ -929,26 +937,6 @@ export class SPHSolver {
         this.enableCohesionForce = cohesion;
     }
 
-    benchmarkDensityPass(iterations = 100) {
-
-        this.grid.build(
-            this.positions,
-            this.numParticles
-        );
-
-        for (let i = 0; i < 5; ++i) {
-            this.computeDensityAndPressure();
-        }
-
-        const start = performance.now();
-
-        for (let i = 0; i < iterations; ++i) {
-            this.computeDensityAndPressure();
-        }
-
-        return (performance.now() - start) / iterations;
-    }
-
     benchmarkForcePass(iterations = 50) {
 
         // Ensure the spatial structure and density values
@@ -959,6 +947,7 @@ export class SPHSolver {
             this.numParticles
         );
 
+        this.buildUniqueNeighborPairs();
         this.computeDensityAndPressure();
 
         // Warm-up.
@@ -976,6 +965,24 @@ export class SPHSolver {
 
         const elapsed = performance.now() - start;
         return elapsed / iterations;
+    }
+
+    benchmarkDensityPass(iterations = 100) {
+        this.grid.build(this.positions, this.numParticles);
+        this.buildUniqueNeighborPairs();
+
+        // Warm-up
+        for (let i = 0; i < 5; i++) {
+            this.computeDensityAndPressure();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; i++) {
+            this.computeDensityAndPressure();
+        }
+
+        return (performance.now() - start) / iterations;
     }
 
     benchmarkPairBuild(iterations = 100) {
