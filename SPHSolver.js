@@ -69,6 +69,11 @@ export class SPHSolver {
 
         this.grid = new SpatialHashGrid3D(this.h);
 
+        // debug forces
+        this.enablePressureForce = true;
+        this.enableViscosityForce = true;
+        this.enableCohesionForce = true;
+
         this.updateKernelConstants();
 
         this.profile = {
@@ -268,46 +273,52 @@ export class SPHSolver {
                 const rhoj = this.densities[j];
                 const Pj = this.pressures[j];
 
-                // Pressure force
-                const pressureTerm = Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
+                if (this.enablePressureForce) {
+                    // Pressure force
+                    const pressureTerm = Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
 
-                const gradScale = this.spikyGrad * (this.h - r) * (this.h - r) / r;
+                    const gradScale = this.spikyGrad * (this.h - r) * (this.h - r) / r;
 
-                const gradX = gradScale * rx;
-                const gradY = gradScale * ry;
-                const gradZ = gradScale * rz;
+                    const gradX = gradScale * rx;
+                    const gradY = gradScale * ry;
+                    const gradZ = gradScale * rz;
 
-                ax += -this.mass * pressureTerm * gradX;
-                ay += -this.mass * pressureTerm * gradY;
-                az += -this.mass * pressureTerm * gradZ;
+                    ax += -this.mass * pressureTerm * gradX;
+                    ay += -this.mass * pressureTerm * gradY;
+                    az += -this.mass * pressureTerm * gradZ;
+                }
 
-                // Viscosity force
-                const lap = this.viscLap * (this.h - r);
+                if (this.enableViscosityForce) {
+                    // Viscosity force
+                    const lap = this.viscLap * (this.h - r);
 
-                ax += this.viscosity * this.mass * (this.velocities[jb] - vxi) / rhoj * lap;
+                    ax += this.viscosity * this.mass * (this.velocities[jb] - vxi) / rhoj * lap;
 
-                ay += this.viscosity * this.mass * (this.velocities[jb + 1] - vyi) / rhoj * lap;
+                    ay += this.viscosity * this.mass * (this.velocities[jb + 1] - vyi) / rhoj * lap;
 
-                az += this.viscosity * this.mass * (this.velocities[jb + 2] - vzi) / rhoj * lap;
+                    az += this.viscosity * this.mass * (this.velocities[jb + 2] - vzi) / rhoj * lap;
+                }
 
-                // Weak surface cohesion
-                const surfaceFactor = Math.max(this.surfaceFactors[i], this.surfaceFactors[j]);
+                if (this.enableCohesionForce) {
+                    // Weak surface cohesion
+                    const surfaceFactor = Math.max(this.surfaceFactors[i], this.surfaceFactors[j]);
 
-                if (surfaceFactor > 0.0) {
-                    const q = r / this.h;
+                    if (surfaceFactor > 0.0) {
+                        const q = r / this.h;
 
-                    const cohesionWeight = this.computeCohesionWeight(q);
+                        const cohesionWeight = this.computeCohesionWeight(q);
 
-                    if (cohesionWeight > 0.0) {
-                        const invR = 1.0 / r;
+                        if (cohesionWeight > 0.0) {
+                            const invR = 1.0 / r;
 
-                        const cohesionAcceleration = this.surfaceTension * this.mass * surfaceFactor * cohesionWeight / Math.max(rhoj, 0.0001);
+                            const cohesionAcceleration = this.surfaceTension * this.mass * surfaceFactor * cohesionWeight / Math.max(rhoj, 0.0001);
 
-                        ax += cohesionAcceleration * (-rx * invR);
+                            ax += cohesionAcceleration * (-rx * invR);
 
-                        ay += cohesionAcceleration * (-ry * invR);
+                            ay += cohesionAcceleration * (-ry * invR);
 
-                        az += cohesionAcceleration * (-rz * invR);
+                            az += cohesionAcceleration * (-rz * invR);
+                        }
                     }
                 }
 
@@ -516,5 +527,60 @@ export class SPHSolver {
         return 4.0 * t * (1.0 - t);
     }
 
+    // debug helper
+    setForceBenchmarkOptions(pressure, viscosity, cohesion)
+    {
+        this.enablePressureForce = pressure;
+        this.enableViscosityForce = viscosity;
+        this.enableCohesionForce = cohesion;
+    }
 
+    benchmarkDensityPass(iterations = 100) {
+
+        this.grid.build(
+            this.positions,
+            this.numParticles
+        );
+
+        for (let i = 0; i < 5; ++i) {
+            this.computeDensityAndPressure();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; ++i) {
+            this.computeDensityAndPressure();
+        }
+
+        return (performance.now() - start) / iterations;
+    }
+
+    benchmarkForcePass(iterations = 50) {
+
+        // Ensure the spatial structure and density values
+        // correspond to the current frozen particle state.
+
+        this.grid.build(
+            this.positions,
+            this.numParticles
+        );
+
+        this.computeDensityAndPressure();
+
+        // Warm-up.
+        // Gives the JS engine a chance to optimize the hot path.
+
+        for (let i = 0; i < 5; ++i) {
+            this.computeForces();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; ++i) {
+            this.computeForces();
+        }
+
+        const elapsed = performance.now() - start;
+        return elapsed / iterations;
+    }
 }

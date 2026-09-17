@@ -175,6 +175,33 @@ function smoothProfileValue(current, sample) {
     return current + (sample - current) * alpha;
 }
 
+const benchmarkActions = {
+
+    runForceBenchmark: () => {
+
+        const result = solver.benchmarkForcePass(100);
+
+        console.log(
+            `[Force Benchmark] ` +
+            `P=${solver.enablePressureForce} ` +
+            `V=${solver.enableViscosityForce} ` +
+            `C=${solver.enableCohesionForce} ` +
+            `Average=${result.toFixed(3)} ms`
+        );
+    }
+};
+
+benchmarkActions.runDensityBenchmark = () => {
+
+    const result =
+        solver.benchmarkDensityPass(100);
+
+    console.log(
+        `[Density Benchmark] ` +
+        `Average=${result.toFixed(3)} ms`
+    );
+};
+
 // ------------------------------------------------------------
 // GUI
 // ------------------------------------------------------------
@@ -279,7 +306,11 @@ const renderSettings = {
 };
 
 const benchmarkSettings = {
-    runSimulation: true
+    runSimulation: true,
+
+    pressureForce: true,
+    viscosityForce: true,
+    cohesionForce: true
 };
 
 function syncScreenSpaceParticleRadius() {
@@ -296,9 +327,51 @@ gui
     .name("Render Mode")
     .onChange(updateRenderMode);
 
-gui
-    .add(benchmarkSettings, "runSimulation")
+// Temporary debug folder section
+const benchmarkFolder = gui.addFolder("Benchmark");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "runSimulation"
+    )
     .name("Run Simulation");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "pressureForce"
+    )
+    .name("Pressure");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "viscosityForce"
+    )
+    .name("Viscosity");
+
+benchmarkFolder
+    .add(
+        benchmarkSettings,
+        "cohesionForce"
+    )
+    .name("Cohesion");
+
+benchmarkFolder
+    .add(
+        benchmarkActions,
+        "runForceBenchmark"
+    )
+    .name("Benchmark Forces");
+
+benchmarkFolder
+    .add(
+        benchmarkActions,
+        "runDensityBenchmark"
+    )
+    .name("Benchmark Density");
+// ---------------------------------------
 
 function updateRenderMode() {
     const useParticleRenderer =
@@ -713,6 +786,13 @@ function animate(currentTime) {
 
         for (let i = 0; i < solver.substeps; i++) {
 
+            // Temporary forces debug
+            solver.setForceBenchmarkOptions(
+                benchmarkSettings.pressureForce,
+                benchmarkSettings.viscosityForce,
+                benchmarkSettings.cohesionForce
+            );
+
             solver.step(solver.fixedDt / solver.substeps);
 
             gridMs += solver.profile.gridMs;
@@ -813,6 +893,7 @@ function animate(currentTime) {
     // ------------------------------------------------------------
     // Update Renderer
     // ------------------------------------------------------------
+    const renderStart = performance.now();
 
     if (useParticles) {
         renderer.setRenderTarget(null);
