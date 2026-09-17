@@ -36,6 +36,8 @@ export class SPHSolver {
         this.initialSpacing = options.initialSpacing ?? 0.07;
         this.initialHeight = options.initialHeight ?? 0.65;
 
+        this.initialPosition = options.initialPosition ?? {x: -0.20, y: 0.0, z: -0.5};
+
         // Surface tension
 
         // This is a tunable simulation coefficient,
@@ -103,9 +105,9 @@ export class SPHSolver {
     reset() {
         let index = 0;
 
-        const startX = -0.20;
-        const startY = 0.0;
-        const startZ = -0.5;
+        const startX = this.initialPosition.x;
+        const startY = this.initialPosition.y;
+        const startZ = this.initialPosition.z;
 
         for (let y = 0; y < this.countY; y++) {
             for (let x = 0; x < this.countX; x++) {
