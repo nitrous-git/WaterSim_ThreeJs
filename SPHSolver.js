@@ -68,6 +68,7 @@ export class SPHSolver {
         this.pressures = new Float32Array(this.numParticles);
 
         this.densityScratch = new Float64Array(this.numParticles);
+        this.forceScratch = new Float64Array(this.numParticles * 3);
 
         this.surfaceFactors = new Float32Array(this.numParticles);
 
@@ -310,195 +311,208 @@ export class SPHSolver {
         const positions = this.positions;
         const velocities = this.velocities;
         const accelerations = this.accelerations;
+        const forceScratch = this.forceScratch;
 
         const densities = this.densities;
         const pressures = this.pressures;
         const surfaceFactors = this.surfaceFactors;
 
-        const grid = this.grid;
-
-        const cellHeads = grid.cellHeads;
-        const particleNext = grid.particleNext;
-
-        const cellsX = grid.cellsX;
-        const cellsY = grid.cellsY;
-        const cellsZ = grid.cellsZ;
-
-        const strideY = cellsX;
-        const strideZ = cellsX * cellsY;
-
-        const invCellSize = grid.invCellSize;
-
-        const gridMinX = grid.boxMin.x;
-        const gridMinY = grid.boxMin.y;
-        const gridMinZ = grid.boxMin.z;
+        const pairA = this.pairA;
+        const pairB = this.pairB;
+        const pairCount = this.pairCount;
 
         const h = this.h;
-        const h2 = this.h2;
-
         const mass = this.mass;
-
         const gravity = this.gravity;
 
         const spikyGrad = this.spikyGrad;
         const viscLap = this.viscLap;
-
         const viscosity = this.viscosity;
-
         const surfaceTension = this.surfaceTension;
 
         const enablePressure = this.enablePressureForce;
         const enableViscosity = this.enableViscosityForce;
         const enableCohesion = this.enableCohesionForce;
 
+        // --------------------------------------------------------
+        // Initialize accelerations
+        // --------------------------------------------------------
+        //
+        // Same starting state as the old particle-centric pass:
+        //
+        // ax = 0
+        // ay = gravity
+        // az = 0
+
         for (let i = 0; i < this.numParticles; i++) {
             const ib = i * 3;
 
-            const xi = positions[ib];
-            const yi = positions[ib + 1];
-            const zi = positions[ib + 2];
+            forceScratch[ib] = 0.0;
+            forceScratch[ib + 1] = gravity;
+            forceScratch[ib + 2] = 0.0;
+        }
 
-            const vxi = velocities[ib];
-            const vyi = velocities[ib + 1];
-            const vzi = velocities[ib + 2];
+        // --------------------------------------------------------
+        // Unique interacting pairs
+        // --------------------------------------------------------
+
+        for (let k = 0; k < pairCount; k++) {
+            const i = pairA[k];
+            const j = pairB[k];
+
+            const ib = i * 3;
+            const jb = j * 3;
+
+            const rx = positions[ib] - positions[jb];
+            const ry = positions[ib + 1] - positions[jb + 1];
+            const rz = positions[ib + 2] - positions[jb + 2];
+
+            const r2 = rx * rx + ry * ry + rz * rz;
+
+            // The pair builder already guarantees r2 < h2.
+            //
+            // Forces still reject extremely small separation
+            // because pressure/cohesion divide by r.
+
+            if (r2 <= 0.000001) {
+                continue;
+            }
+
+            const r = Math.sqrt(r2);
 
             const rhoi = densities[i];
+            const rhoj = densities[j];
+
             const Pi = pressures[i];
+            const Pj = pressures[j];
 
-            let ax = 0.0;
-            let ay = gravity;
-            let az = 0.0;
-
-            // ----------------------------------------------------
-            // Particle grid cell
-            // ----------------------------------------------------
-
-            let ix = Math.floor((xi - gridMinX) * invCellSize);
-            let iy = Math.floor((yi - gridMinY) * invCellSize);
-            let iz = Math.floor((zi - gridMinZ) * invCellSize);
-
-            ix = Math.max(0, Math.min(cellsX - 1, ix));
-            iy = Math.max(0, Math.min(cellsY - 1, iy));
-            iz = Math.max(0, Math.min(cellsZ - 1, iz));
+            const hMinusR = h - r;
 
             // ----------------------------------------------------
-            // Neighbor cell range
+            // Pressure
             // ----------------------------------------------------
+            //
+            // Pressure acceleration is symmetric here.
+            //
+            // If F is applied to i, exactly -F is applied to j.
 
-            const minX = Math.max(0, ix - 1);
-            const maxX = Math.min(cellsX - 1, ix + 1);
+            if (enablePressure) {
+                const pressureTerm = Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
 
-            const minY = Math.max(0, iy - 1);
-            const maxY = Math.min(cellsY - 1, iy + 1);
+                const gradScale = spikyGrad * hMinusR * hMinusR / r;
 
-            const minZ = Math.max(0, iz - 1);
-            const maxZ = Math.min(cellsZ - 1, iz + 1);
+                const gradX = gradScale * rx;
+                const gradY = gradScale * ry;
+                const gradZ = gradScale * rz;
+
+                const pressureX = -mass * pressureTerm * gradX;
+                const pressureY = -mass * pressureTerm * gradY;
+                const pressureZ = -mass * pressureTerm * gradZ;
+
+                forceScratch[ib] += pressureX;
+                forceScratch[ib + 1] += pressureY;
+                forceScratch[ib + 2] += pressureZ;
+
+                forceScratch[jb] -= pressureX;
+                forceScratch[jb + 1] -= pressureY;
+                forceScratch[jb + 2] -= pressureZ;
+            }
 
             // ----------------------------------------------------
-            // Neighbor traversal
+            // Viscosity
             // ----------------------------------------------------
+            //
+            // Important:
+            //
+            // i uses 1 / rhoj
+            // j uses 1 / rhoi
+            //
+            // Therefore we must compute two factors rather than
+            // simply negate one acceleration.
 
-            for (let z = minZ; z <= maxZ; z++) {
-                const zOffset = z * strideZ;
+            if (enableViscosity) {
+                const lap = viscLap * hMinusR;
 
-                for (let y = minY; y <= maxY; y++) {
-                    const yzOffset = zOffset + y * strideY;
+                const dvx = velocities[jb] - velocities[ib];
+                const dvy = velocities[jb + 1] - velocities[ib + 1];
+                const dvz = velocities[jb + 2] - velocities[ib + 2];
 
-                    for (let x = minX; x <= maxX; x++) {
-                        let j = cellHeads[yzOffset + x];
+                const factorI = viscosity * mass * lap / rhoj;
+                const factorJ = viscosity * mass * lap / rhoi;
 
-                        while (j !== -1) {
-                            if (j !== i) {
-                                const jb = j * 3;
+                forceScratch[ib] += factorI * dvx;
+                forceScratch[ib + 1] += factorI * dvy;
+                forceScratch[ib + 2] += factorI * dvz;
 
-                                const rx = xi - positions[jb];
-                                const ry = yi - positions[jb + 1];
-                                const rz = zi - positions[jb + 2];
+                // From j's perspective the velocity difference is:
+                //
+                // vi - vj = -(vj - vi)
 
-                                const r2 = rx * rx + ry * ry + rz * rz;
+                forceScratch[jb] -= factorJ * dvx;
+                forceScratch[jb + 1] -= factorJ * dvy;
+                forceScratch[jb + 2] -= factorJ * dvz;
+            }
 
-                                if (r2 > 0.000001 && r2 < h2) {
-                                    const r = Math.sqrt(r2);
+            // ----------------------------------------------------
+            // Cohesion
+            // ----------------------------------------------------
+            //
+            // Same geometry is shared by both particles, but each
+            // side uses the OTHER particle's density.
 
-                                    const rhoj = densities[j];
-                                    const Pj = pressures[j];
+            if (enableCohesion) {
+                const surfaceFactor = Math.max(surfaceFactors[i], surfaceFactors[j]);
 
-                                    // ----------------------------
-                                    // Pressure
-                                    // ----------------------------
+                if (surfaceFactor > 0.0) {
+                    const q = r / h;
 
-                                    if (enablePressure) {
-                                        const pressureTerm =
-                                            Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
+                    const cohesionWeight = this.computeCohesionWeight(q);
 
-                                        const hMinusR = h - r;
+                    if (cohesionWeight > 0.0) {
+                        const invR = 1.0 / r;
 
-                                        const gradScale = spikyGrad * hMinusR * hMinusR / r;
+                        const nx = rx * invR;
+                        const ny = ry * invR;
+                        const nz = rz * invR;
 
-                                        const gradX = gradScale * rx;
-                                        const gradY = gradScale * ry;
-                                        const gradZ = gradScale * rz;
+                        const common = surfaceTension * mass * surfaceFactor * cohesionWeight;
 
-                                        ax += -mass * pressureTerm * gradX;
-                                        ay += -mass * pressureTerm * gradY;
-                                        az += -mass * pressureTerm * gradZ;
-                                    }
+                        // Particle i is attracted toward j.
+                        // Its denominator is rhoj.
 
-                                    // ----------------------------
-                                    // Viscosity
-                                    // ----------------------------
+                        const cohesionI = common / Math.max(rhoj, 0.0001);
 
-                                    if (enableViscosity) {
-                                        const lap = viscLap * (h - r);
+                        forceScratch[ib] += cohesionI * (-nx);
+                        forceScratch[ib + 1] += cohesionI * (-ny);
+                        forceScratch[ib + 2] += cohesionI * (-nz);
 
-                                        const factor = viscosity * mass * lap / rhoj;
+                        // Particle j is attracted toward i.
+                        // Its denominator is rhoi.
 
-                                        ax += factor * (velocities[jb] - vxi);
-                                        ay += factor * (velocities[jb + 1] - vyi);
-                                        az += factor * (velocities[jb + 2] - vzi);
-                                    }
+                        const cohesionJ = common / Math.max(rhoi, 0.0001);
 
-                                    // ----------------------------
-                                    // Cohesion
-                                    // ----------------------------
-
-                                    if (enableCohesion) {
-                                        const surfaceFactor = Math.max(surfaceFactors[i],  surfaceFactors[j]);
-
-                                        if (surfaceFactor > 0.0) {
-                                            const q = r / h;
-
-                                            const cohesionWeight = this.computeCohesionWeight(q);
-
-                                            if (cohesionWeight > 0.0) {
-                                                const invR = 1.0 / r;
-
-                                                const cohesionAcceleration =
-                                                    surfaceTension *
-                                                    mass *
-                                                    surfaceFactor *
-                                                    cohesionWeight /
-                                                    Math.max(rhoj, 0.0001);
-
-                                                ax += cohesionAcceleration * (-rx * invR);
-                                                ay += cohesionAcceleration * (-ry * invR);
-                                                az += cohesionAcceleration * (-rz * invR);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Always advance exactly once.
-                            j = particleNext[j];
-                        }
+                        forceScratch[jb] += cohesionJ * nx;
+                        forceScratch[jb + 1] += cohesionJ * ny;
+                        forceScratch[jb + 2] += cohesionJ * nz;
                     }
                 }
             }
+        }
 
-            accelerations[ib] = ax;
-            accelerations[ib + 1] = ay;
-            accelerations[ib + 2] = az;
+        // --------------------------------------------------------
+        // Commit accelerations
+        // --------------------------------------------------------
+        //
+        // Convert to Float32 once per particle, matching the
+        // numerical behavior of the old local ax/ay/az accumulation
+        // much more closely than writing after every pair.
+
+        for (let i = 0; i < this.numParticles; i++) {
+            const ib = i * 3;
+
+            accelerations[ib] = forceScratch[ib];
+            accelerations[ib + 1] = forceScratch[ib + 1];
+            accelerations[ib + 2] = forceScratch[ib + 2];
         }
     }
 
