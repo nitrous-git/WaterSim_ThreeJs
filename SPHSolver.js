@@ -70,6 +70,14 @@ export class SPHSolver {
         this.grid = new SpatialHashGrid3D(this.h);
 
         this.updateKernelConstants();
+
+        this.profile = {
+            gridMs: 0.0,
+            densityMs: 0.0,
+            forcesMs: 0.0,
+            integrationMs: 0.0,
+            totalMs: 0.0
+        };
     }
 
     updateKernelConstants() {
@@ -127,23 +135,57 @@ export class SPHSolver {
     }
 
     step(dt) {
-        // Build neighbor structure
+        const totalStart = performance.now();
+
+        // --------------------------------------------------------
+        // Spatial grid
+        // --------------------------------------------------------
+
+        let phaseStart = performance.now();
+
         this.grid.build(this.positions, this.numParticles);
 
-        // Compute SPH state
+        this.profile.gridMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Density / pressure
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
         this.computeDensityAndPressure();
+
+        this.profile.densityMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Forces
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
         this.computeForces();
 
-        // Add external mouse force
-        // We call applyMouseForce() after computeForces() and before integrateEuler(dt)
-        // That way the mouse simply adds extra acceleration into the current frame
+        this.profile.forcesMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // External forces + integration
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
         this.applyMouseForce();
 
-        // Simple semi-implicit Euler
         this.integrateEuler(dt);
 
-        // Small damping, similar in spirit to the damping term in the Python version
         this.applyGlobalDamping();
+
+        this.profile.integrationMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Total solver step
+        // --------------------------------------------------------
+
+        this.profile.totalMs = performance.now() - totalStart;
     }
 
     computeDensityAndPressure() {

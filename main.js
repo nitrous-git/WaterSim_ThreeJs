@@ -151,7 +151,29 @@ const debugPanel = document.getElementById("debug-panel");
 
 let frameCounter = 0;
 let fpsTimer = 0;
+
 let displayedFps = 0;
+let displayedFrameMs = 0.0;
+
+const displayedProfile = {
+    gridMs: 0.0,
+    densityMs: 0.0,
+    forcesMs: 0.0,
+    integrationMs: 0.0,
+    solverMs: 0.0,
+    renderPrepMs: 0.0,
+    renderSubmitMs: 0.0
+};
+
+function smoothProfileValue(current, sample) {
+    const alpha = 0.10;
+
+    if (current === 0.0) {
+        return sample;
+    }
+
+    return current + (sample - current) * alpha;
+}
 
 // ------------------------------------------------------------
 // GUI
@@ -256,6 +278,10 @@ const renderSettings = {
     visualRadiusScale: 0.45
 };
 
+const benchmarkSettings = {
+    runSimulation: true
+};
+
 function syncScreenSpaceParticleRadius() {
     screenSpaceFluidRenderer.particleRadius = solver.h * renderSettings.visualRadiusScale;
 }
@@ -269,6 +295,10 @@ gui
     .add(renderSettings, "mode", renderModes)
     .name("Render Mode")
     .onChange(updateRenderMode);
+
+gui
+    .add(benchmarkSettings, "runSimulation")
+    .name("Run Simulation");
 
 function updateRenderMode() {
     const useParticleRenderer =
@@ -644,6 +674,7 @@ const maxFrameDt = 0.05;
 function animate(currentTime) {
     requestAnimationFrame(animate);
 
+    let refreshDebugPanel = false;
 
     const rawDeltaSeconds = (currentTime - previousTime) * 0.001;
     const physicsDeltaSeconds = Math.min(rawDeltaSeconds, maxFrameDt);
@@ -658,18 +689,85 @@ function animate(currentTime) {
 
     if (fpsTimer >= 0.25) {
         displayedFps = Math.round(frameCounter / fpsTimer);
+        displayedFrameMs = (fpsTimer * 1000.0) / frameCounter;
+
         frameCounter = 0;
         fpsTimer = 0;
+
+        refreshDebugPanel = true;
     }
 
     updateMouseForceRay();
 
+    // ------------------------------------------------------------
     // Solver Update
-    for (let i = 0; i < solver.substeps; i++) {
-        solver.step(solver.fixedDt / solver.substeps);
+    // ------------------------------------------------------------
+
+    let gridMs = 0.0;
+    let densityMs = 0.0;
+    let forcesMs = 0.0;
+    let integrationMs = 0.0;
+    let solverMs = 0.0;
+
+    if (benchmarkSettings.runSimulation) {
+
+        for (let i = 0; i < solver.substeps; i++) {
+
+            solver.step(solver.fixedDt / solver.substeps);
+
+            gridMs += solver.profile.gridMs;
+            densityMs += solver.profile.densityMs;
+            forcesMs += solver.profile.forcesMs;
+            integrationMs += solver.profile.integrationMs;
+            solverMs += solver.profile.totalMs;
+        }
+
+        displayedProfile.gridMs =
+            smoothProfileValue(
+                displayedProfile.gridMs,
+                gridMs
+            );
+
+        displayedProfile.densityMs =
+            smoothProfileValue(
+                displayedProfile.densityMs,
+                densityMs
+            );
+
+        displayedProfile.forcesMs =
+            smoothProfileValue(
+                displayedProfile.forcesMs,
+                forcesMs
+            );
+
+        displayedProfile.integrationMs =
+            smoothProfileValue(
+                displayedProfile.integrationMs,
+                integrationMs
+            );
+
+        displayedProfile.solverMs =
+            smoothProfileValue(
+                displayedProfile.solverMs,
+                solverMs
+            );
+    }
+    else {
+
+        displayedProfile.gridMs = 0.0;
+        displayedProfile.densityMs = 0.0;
+        displayedProfile.forcesMs = 0.0;
+        displayedProfile.integrationMs = 0.0;
+        displayedProfile.solverMs = 0.0;
     }
 
+    // ------------------------------------------------------------
+    // Update particle renderer
+    // ------------------------------------------------------------
+
     const useParticles = renderSettings.mode === "Water Particles";
+
+    const renderPrepStart = performance.now();
 
     if (useParticles) {
         particleRenderer.update(currentTime * 0.001);
@@ -677,16 +775,44 @@ function animate(currentTime) {
         screenSpaceFluidRenderer.update();
     }
 
-    debugPanel.innerHTML = `
+    const renderPrepMs = performance.now() - renderPrepStart;
+    displayedProfile.renderPrepMs = smoothProfileValue(displayedProfile.renderPrepMs, renderPrepMs);
+
+    // ------------------------------------------------------------
+    // Update Debug
+    // ------------------------------------------------------------
+
+    if (refreshDebugPanel) {
+
+        debugPanel.innerHTML = `
         Particles: ${solver.numParticles}<br>
         FPS: ${displayedFps}<br>
+        Frame: ${displayedFrameMs.toFixed(2)} ms<br>
+        <br>
+        <b>CPU Solver</b><br>
+        Grid: ${displayedProfile.gridMs.toFixed(2)} ms<br>
+        Density: ${displayedProfile.densityMs.toFixed(2)} ms<br>
+        Forces: ${displayedProfile.forcesMs.toFixed(2)} ms<br>
+        Integration: ${displayedProfile.integrationMs.toFixed(2)} ms<br>
+        Solver Total: ${displayedProfile.solverMs.toFixed(2)} ms<br>
+        <br>
+        <b>Rendering</b><br>
+        Render Prep: ${displayedProfile.renderPrepMs.toFixed(2)} ms<br>
+        Render Submit: ${displayedProfile.renderSubmitMs.toFixed(2)} ms<br>
+        Mode: ${renderSettings.mode}<br>
+        Blur: ${screenSpaceFluidRenderer.blurIterations}<br>
+        <br>
         fixedDt: ${solver.fixedDt.toFixed(4)}<br>
-        h: ${solver.h.toFixed(3)}<br>
-        stiffness: ${solver.stiffness.toFixed(2)}<br>
-        viscosity: ${solver.viscosity.toFixed(3)}
+        h: ${solver.h.toFixed(3)}
     `;
+    }
 
+    // update mouse controls
     controls.update();
+
+    // ------------------------------------------------------------
+    // Update Renderer
+    // ------------------------------------------------------------
 
     if (useParticles) {
         renderer.setRenderTarget(null);
@@ -694,6 +820,9 @@ function animate(currentTime) {
     } else {
         screenSpaceFluidRenderer.render(renderer, scene, camera);
     }
+
+    const renderSubmitMs = performance.now() - renderStart;
+    displayedProfile.renderSubmitMs = smoothProfileValue(displayedProfile.renderSubmitMs, renderSubmitMs);
 }
 
 requestAnimationFrame(animate);
