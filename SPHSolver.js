@@ -67,7 +67,16 @@ export class SPHSolver {
         this.densities = new Float32Array(this.numParticles);
         this.pressures = new Float32Array(this.numParticles);
 
+        this.densityScratch = new Float64Array(this.numParticles);
+        this.forceScratch = new Float64Array(this.numParticles * 3);
+
         this.surfaceFactors = new Float32Array(this.numParticles);
+
+        // Unique SPH neighbor pairs
+        this.pairCount = 0;
+        this.pairCapacity =  Math.max(1024, this.numParticles * 32);
+        this.pairA = new Int32Array(this.pairCapacity);
+        this.pairB = new Int32Array(this.pairCapacity);
 
         this.grid = new SpatialHashGrid3D(this.h, this.boxMin, this.boxMax);
 
@@ -80,6 +89,7 @@ export class SPHSolver {
 
         this.profile = {
             gridMs: 0.0,
+            pairBuildMs: 0.0,
             densityMs: 0.0,
             forcesMs: 0.0,
             integrationMs: 0.0,
@@ -139,6 +149,7 @@ export class SPHSolver {
 
         this.densities.fill(0.0);
         this.pressures.fill(0.0);
+        this.pairCount = 0;
     }
 
     step(dt) {
@@ -153,6 +164,16 @@ export class SPHSolver {
         this.grid.build(this.positions, this.numParticles);
 
         this.profile.gridMs = performance.now() - phaseStart;
+
+        // --------------------------------------------------------
+        // Unique interacting pairs
+        // --------------------------------------------------------
+
+        phaseStart = performance.now();
+
+        this.buildUniqueNeighborPairs();
+
+        this.profile.pairBuildMs = performance.now() - phaseStart;
 
         // --------------------------------------------------------
         // Density / pressure
@@ -199,94 +220,89 @@ export class SPHSolver {
         const positions = this.positions;
         const densities = this.densities;
         const pressures = this.pressures;
+        const surfaceFactors = this.surfaceFactors;
+        const densityScratch = this.densityScratch;
 
-        const grid = this.grid;
-
-        const cellHeads = grid.cellHeads;
-        const particleNext = grid.particleNext;
-
-        const cellsX = grid.cellsX;
-        const cellsY = grid.cellsY;
-        const cellsZ = grid.cellsZ;
-
-        const strideY = cellsX;
-        const strideZ = cellsX * cellsY;
-
-        const invCellSize = grid.invCellSize;
-
-        const gridMinX = grid.boxMin.x;
-        const gridMinY = grid.boxMin.y;
-        const gridMinZ = grid.boxMin.z;
+        const pairA = this.pairA;
+        const pairB = this.pairB;
+        const pairCount = this.pairCount;
 
         const h2 = this.h2;
-        const mass = this.mass;
-        const poly6 = this.poly6;
+        const kernelScale = this.mass * this.poly6;
 
+        // --------------------------------------------------------
+        // Self density
+        // --------------------------------------------------------
+        //
+        // The old particle-centric density loop included i == j.
+        //
+        // Since the pair list contains only distinct pairs,
+        // explicitly seed every particle with W(0).
+
+        const selfDensity = kernelScale * h2 * h2 * h2;
+
+        densityScratch.fill(selfDensity);
+
+        // --------------------------------------------------------
+        // Pair density
+        // --------------------------------------------------------
+        //
+        // Every stored pair contributes the same Poly6 value
+        // to both particles.
+
+        for (let k = 0; k < pairCount; k++) {
+            const i = pairA[k];
+            const j = pairB[k];
+
+            const ib = i * 3;
+            const jb = j * 3;
+
+            const dx = positions[ib] - positions[jb];
+            const dy = positions[ib + 1] - positions[jb + 1];
+            const dz = positions[ib + 2] - positions[jb + 2];
+
+            const r2 = dx * dx + dy * dy + dz * dz;
+
+            // No support-radius test is required here.
+            //
+            // buildUniqueNeighborPairs() already guarantees:
+            //
+            //     r2 < h2
+            //
+            // and positions have not changed since the pair list
+            // was generated.
+
+            const diff = h2 - r2;
+            const contribution = kernelScale * diff * diff * diff;
+
+            densityScratch[i] += contribution;
+            densityScratch[j] += contribution;
+        }
+
+        // --------------------------------------------------------
+        // Pressure + surface classification
+        // --------------------------------------------------------
+
+        const restDensity = this.restDensity;
+        const stiffness = this.stiffness;
+        const gamma = this.gamma;
+        const surfaceDensityRange = this.surfaceDensityRange;
 
         for (let i = 0; i < this.numParticles; i++) {
-            const ib = i * 3;
-            const xi = positions[ib];
-            const yi = positions[ib + 1];
-            const zi = positions[ib + 2];
-
-            let ix = Math.floor((xi - gridMinX) * invCellSize);
-            let iy = Math.floor((yi - gridMinY) * invCellSize);
-            let iz = Math.floor((zi - gridMinZ) * invCellSize);
-
-            ix = Math.max(0, Math.min(cellsX - 1, ix));
-            iy = Math.max(0, Math.min(cellsY - 1, iy));
-            iz = Math.max(0, Math.min(cellsZ - 1, iz));
-
-            const minX = Math.max(0, ix - 1);
-            const maxX = Math.min(cellsX - 1, ix + 1);
-
-            const minY = Math.max(0, iy - 1);
-            const maxY = Math.min(cellsY - 1, iy + 1);
-
-            const minZ = Math.max(0, iz - 1);
-            const maxZ = Math.min(cellsZ - 1, iz + 1);
-
-            let density = 0.0;
-
-            for (let z = minZ; z <= maxZ; z++) {
-                const zOffset = z * strideZ;
-
-                for (let y = minY; y <= maxY; y++) {
-                    const yzOffset = zOffset + y * strideY;
-
-                    for (let x = minX; x <= maxX; x++) {
-                        let j = cellHeads[yzOffset + x];
-
-                        while (j !== -1) {
-                            const jb = j * 3;
-
-                            const dx = xi - positions[jb];
-                            const dy = yi - positions[jb + 1];
-                            const dz = zi - positions[jb + 2];
-
-                            const r2 = dx * dx + dy * dy + dz * dz;
-
-                            if (r2 < h2) {
-                                const diff = h2 - r2;
-                                density += mass * poly6 * diff * diff * diff;
-                            }
-
-                            j = particleNext[j];
-                        }
-                    }
-                }
-            }
+            const density = densityScratch[i];
 
             densities[i] = density;
 
-            const ratio = density / this.restDensity;
-            const pressure = this.stiffness * (Math.pow(ratio, this.gamma) - 1.0);
+            const ratio = density / restDensity;
+
+            const pressure = stiffness * (Math.pow(ratio, gamma) - 1.0);
 
             pressures[i] = Math.max(pressure, 0.0);
 
-            // Surface Factor
-            const densityDeficit = (this.restDensity - density) / (this.restDensity * this.surfaceDensityRange);
-            this.surfaceFactors[i] = Math.min(1.0, Math.max(0.0, densityDeficit));
+            const densityDeficit =
+                (restDensity - density) / (restDensity * surfaceDensityRange);
+
+            surfaceFactors[i] = Math.min(1.0, Math.max(0.0, densityDeficit));
         }
     }
 
@@ -294,195 +310,208 @@ export class SPHSolver {
         const positions = this.positions;
         const velocities = this.velocities;
         const accelerations = this.accelerations;
+        const forceScratch = this.forceScratch;
 
         const densities = this.densities;
         const pressures = this.pressures;
         const surfaceFactors = this.surfaceFactors;
 
-        const grid = this.grid;
-
-        const cellHeads = grid.cellHeads;
-        const particleNext = grid.particleNext;
-
-        const cellsX = grid.cellsX;
-        const cellsY = grid.cellsY;
-        const cellsZ = grid.cellsZ;
-
-        const strideY = cellsX;
-        const strideZ = cellsX * cellsY;
-
-        const invCellSize = grid.invCellSize;
-
-        const gridMinX = grid.boxMin.x;
-        const gridMinY = grid.boxMin.y;
-        const gridMinZ = grid.boxMin.z;
+        const pairA = this.pairA;
+        const pairB = this.pairB;
+        const pairCount = this.pairCount;
 
         const h = this.h;
-        const h2 = this.h2;
-
         const mass = this.mass;
-
         const gravity = this.gravity;
 
         const spikyGrad = this.spikyGrad;
         const viscLap = this.viscLap;
-
         const viscosity = this.viscosity;
-
         const surfaceTension = this.surfaceTension;
 
         const enablePressure = this.enablePressureForce;
         const enableViscosity = this.enableViscosityForce;
         const enableCohesion = this.enableCohesionForce;
 
+        // --------------------------------------------------------
+        // Initialize accelerations
+        // --------------------------------------------------------
+        //
+        // Same starting state as the old particle-centric pass:
+        //
+        // ax = 0
+        // ay = gravity
+        // az = 0
+
         for (let i = 0; i < this.numParticles; i++) {
             const ib = i * 3;
 
-            const xi = positions[ib];
-            const yi = positions[ib + 1];
-            const zi = positions[ib + 2];
+            forceScratch[ib] = 0.0;
+            forceScratch[ib + 1] = gravity;
+            forceScratch[ib + 2] = 0.0;
+        }
 
-            const vxi = velocities[ib];
-            const vyi = velocities[ib + 1];
-            const vzi = velocities[ib + 2];
+        // --------------------------------------------------------
+        // Unique interacting pairs
+        // --------------------------------------------------------
+
+        for (let k = 0; k < pairCount; k++) {
+            const i = pairA[k];
+            const j = pairB[k];
+
+            const ib = i * 3;
+            const jb = j * 3;
+
+            const rx = positions[ib] - positions[jb];
+            const ry = positions[ib + 1] - positions[jb + 1];
+            const rz = positions[ib + 2] - positions[jb + 2];
+
+            const r2 = rx * rx + ry * ry + rz * rz;
+
+            // The pair builder already guarantees r2 < h2.
+            //
+            // Forces still reject extremely small separation
+            // because pressure/cohesion divide by r.
+
+            if (r2 <= 0.000001) {
+                continue;
+            }
+
+            const r = Math.sqrt(r2);
 
             const rhoi = densities[i];
+            const rhoj = densities[j];
+
             const Pi = pressures[i];
+            const Pj = pressures[j];
 
-            let ax = 0.0;
-            let ay = gravity;
-            let az = 0.0;
-
-            // ----------------------------------------------------
-            // Particle grid cell
-            // ----------------------------------------------------
-
-            let ix = Math.floor((xi - gridMinX) * invCellSize);
-            let iy = Math.floor((yi - gridMinY) * invCellSize);
-            let iz = Math.floor((zi - gridMinZ) * invCellSize);
-
-            ix = Math.max(0, Math.min(cellsX - 1, ix));
-            iy = Math.max(0, Math.min(cellsY - 1, iy));
-            iz = Math.max(0, Math.min(cellsZ - 1, iz));
+            const hMinusR = h - r;
 
             // ----------------------------------------------------
-            // Neighbor cell range
+            // Pressure
             // ----------------------------------------------------
+            //
+            // Pressure acceleration is symmetric here.
+            //
+            // If F is applied to i, exactly -F is applied to j.
 
-            const minX = Math.max(0, ix - 1);
-            const maxX = Math.min(cellsX - 1, ix + 1);
+            if (enablePressure) {
+                const pressureTerm = Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
 
-            const minY = Math.max(0, iy - 1);
-            const maxY = Math.min(cellsY - 1, iy + 1);
+                const gradScale = spikyGrad * hMinusR * hMinusR / r;
 
-            const minZ = Math.max(0, iz - 1);
-            const maxZ = Math.min(cellsZ - 1, iz + 1);
+                const gradX = gradScale * rx;
+                const gradY = gradScale * ry;
+                const gradZ = gradScale * rz;
+
+                const pressureX = -mass * pressureTerm * gradX;
+                const pressureY = -mass * pressureTerm * gradY;
+                const pressureZ = -mass * pressureTerm * gradZ;
+
+                forceScratch[ib] += pressureX;
+                forceScratch[ib + 1] += pressureY;
+                forceScratch[ib + 2] += pressureZ;
+
+                forceScratch[jb] -= pressureX;
+                forceScratch[jb + 1] -= pressureY;
+                forceScratch[jb + 2] -= pressureZ;
+            }
 
             // ----------------------------------------------------
-            // Neighbor traversal
+            // Viscosity
             // ----------------------------------------------------
+            //
+            // Important:
+            //
+            // i uses 1 / rhoj
+            // j uses 1 / rhoi
+            //
+            // Therefore we must compute two factors rather than
+            // simply negate one acceleration.
 
-            for (let z = minZ; z <= maxZ; z++) {
-                const zOffset = z * strideZ;
+            if (enableViscosity) {
+                const lap = viscLap * hMinusR;
 
-                for (let y = minY; y <= maxY; y++) {
-                    const yzOffset = zOffset + y * strideY;
+                const dvx = velocities[jb] - velocities[ib];
+                const dvy = velocities[jb + 1] - velocities[ib + 1];
+                const dvz = velocities[jb + 2] - velocities[ib + 2];
 
-                    for (let x = minX; x <= maxX; x++) {
-                        let j = cellHeads[yzOffset + x];
+                const factorI = viscosity * mass * lap / rhoj;
+                const factorJ = viscosity * mass * lap / rhoi;
 
-                        while (j !== -1) {
-                            if (j !== i) {
-                                const jb = j * 3;
+                forceScratch[ib] += factorI * dvx;
+                forceScratch[ib + 1] += factorI * dvy;
+                forceScratch[ib + 2] += factorI * dvz;
 
-                                const rx = xi - positions[jb];
-                                const ry = yi - positions[jb + 1];
-                                const rz = zi - positions[jb + 2];
+                // From j's perspective the velocity difference is:
+                //
+                // vi - vj = -(vj - vi)
 
-                                const r2 = rx * rx + ry * ry + rz * rz;
+                forceScratch[jb] -= factorJ * dvx;
+                forceScratch[jb + 1] -= factorJ * dvy;
+                forceScratch[jb + 2] -= factorJ * dvz;
+            }
 
-                                if (r2 > 0.000001 && r2 < h2) {
-                                    const r = Math.sqrt(r2);
+            // ----------------------------------------------------
+            // Cohesion
+            // ----------------------------------------------------
+            //
+            // Same geometry is shared by both particles, but each
+            // side uses the OTHER particle's density.
 
-                                    const rhoj = densities[j];
-                                    const Pj = pressures[j];
+            if (enableCohesion) {
+                const surfaceFactor = Math.max(surfaceFactors[i], surfaceFactors[j]);
 
-                                    // ----------------------------
-                                    // Pressure
-                                    // ----------------------------
+                if (surfaceFactor > 0.0) {
+                    const q = r / h;
 
-                                    if (enablePressure) {
-                                        const pressureTerm =
-                                            Pi / (rhoi * rhoi) + Pj / (rhoj * rhoj);
+                    const cohesionWeight = this.computeCohesionWeight(q);
 
-                                        const hMinusR = h - r;
+                    if (cohesionWeight > 0.0) {
+                        const invR = 1.0 / r;
 
-                                        const gradScale = spikyGrad * hMinusR * hMinusR / r;
+                        const nx = rx * invR;
+                        const ny = ry * invR;
+                        const nz = rz * invR;
 
-                                        const gradX = gradScale * rx;
-                                        const gradY = gradScale * ry;
-                                        const gradZ = gradScale * rz;
+                        const common = surfaceTension * mass * surfaceFactor * cohesionWeight;
 
-                                        ax += -mass * pressureTerm * gradX;
-                                        ay += -mass * pressureTerm * gradY;
-                                        az += -mass * pressureTerm * gradZ;
-                                    }
+                        // Particle i is attracted toward j.
+                        // Its denominator is rhoj.
 
-                                    // ----------------------------
-                                    // Viscosity
-                                    // ----------------------------
+                        const cohesionI = common / Math.max(rhoj, 0.0001);
 
-                                    if (enableViscosity) {
-                                        const lap = viscLap * (h - r);
+                        forceScratch[ib] += cohesionI * (-nx);
+                        forceScratch[ib + 1] += cohesionI * (-ny);
+                        forceScratch[ib + 2] += cohesionI * (-nz);
 
-                                        const factor = viscosity * mass * lap / rhoj;
+                        // Particle j is attracted toward i.
+                        // Its denominator is rhoi.
 
-                                        ax += factor * (velocities[jb] - vxi);
-                                        ay += factor * (velocities[jb + 1] - vyi);
-                                        az += factor * (velocities[jb + 2] - vzi);
-                                    }
+                        const cohesionJ = common / Math.max(rhoi, 0.0001);
 
-                                    // ----------------------------
-                                    // Cohesion
-                                    // ----------------------------
-
-                                    if (enableCohesion) {
-                                        const surfaceFactor = Math.max(surfaceFactors[i],  surfaceFactors[j]);
-
-                                        if (surfaceFactor > 0.0) {
-                                            const q = r / h;
-
-                                            const cohesionWeight = this.computeCohesionWeight(q);
-
-                                            if (cohesionWeight > 0.0) {
-                                                const invR = 1.0 / r;
-
-                                                const cohesionAcceleration =
-                                                    surfaceTension *
-                                                    mass *
-                                                    surfaceFactor *
-                                                    cohesionWeight /
-                                                    Math.max(rhoj, 0.0001);
-
-                                                ax += cohesionAcceleration * (-rx * invR);
-                                                ay += cohesionAcceleration * (-ry * invR);
-                                                az += cohesionAcceleration * (-rz * invR);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Always advance exactly once.
-                            j = particleNext[j];
-                        }
+                        forceScratch[jb] += cohesionJ * nx;
+                        forceScratch[jb + 1] += cohesionJ * ny;
+                        forceScratch[jb + 2] += cohesionJ * nz;
                     }
                 }
             }
+        }
 
-            accelerations[ib] = ax;
-            accelerations[ib + 1] = ay;
-            accelerations[ib + 2] = az;
+        // --------------------------------------------------------
+        // Commit accelerations
+        // --------------------------------------------------------
+        //
+        // Convert to Float32 once per particle, matching the
+        // numerical behavior of the old local ax/ay/az accumulation
+        // much more closely than writing after every pair.
+
+        for (let i = 0; i < this.numParticles; i++) {
+            const ib = i * 3;
+
+            accelerations[ib] = forceScratch[ib];
+            accelerations[ib + 1] = forceScratch[ib + 1];
+            accelerations[ib + 2] = forceScratch[ib + 2];
         }
     }
 
@@ -683,32 +712,242 @@ export class SPHSolver {
         return 4.0 * t * (1.0 - t);
     }
 
+    // ----------------------------------------------------
+    // Neighbor helper
+    // ----------------------------------------------------
+    ensurePairCapacity(requiredCapacity) {
+        if (requiredCapacity <= this.pairCapacity) {
+            return;
+        }
+
+        let newCapacity = Math.max(1024, this.pairCapacity);
+
+        while (newCapacity < requiredCapacity) {
+            newCapacity *= 2;
+        }
+
+        const newPairA = new Int32Array(newCapacity);
+        const newPairB = new Int32Array(newCapacity);
+
+        newPairA.set(this.pairA.subarray(0, this.pairCount));
+        newPairB.set(this.pairB.subarray(0, this.pairCount));
+
+        this.pairA = newPairA;
+        this.pairB = newPairB;
+        this.pairCapacity = newCapacity;
+    }
+
+    buildUniqueNeighborPairs() {
+        const positions = this.positions;
+        const grid = this.grid;
+
+        const cellHeads = grid.cellHeads;
+        const particleNext = grid.particleNext;
+
+        const cellsX = grid.cellsX;
+        const cellsY = grid.cellsY;
+        const cellsZ = grid.cellsZ;
+
+        const strideY = cellsX;
+        const strideZ = cellsX * cellsY;
+
+        const h2 = this.h2;
+
+        let pairCount = 0;
+        let pairA = this.pairA;
+        let pairB = this.pairB;
+        let pairCapacity = this.pairCapacity;
+
+        // --------------------------------------------------------
+        // Traverse each grid cell once
+        // --------------------------------------------------------
+
+        for (let z = 0; z < cellsZ; z++) {
+            const zOffset = z * strideZ;
+
+            for (let y = 0; y < cellsY; y++) {
+                const yzOffset = zOffset + y * strideY;
+
+                for (let x = 0; x < cellsX; x++) {
+                    const cell = yzOffset + x;
+                    const head = cellHeads[cell];
+
+                    if (head === -1) {
+                        continue;
+                    }
+
+                    // ------------------------------------------------
+                    // 1. Pairs inside the same cell
+                    // ------------------------------------------------
+                    //
+                    // Start j at particleNext[i], so:
+                    //
+                    // (i, j) is visited once
+                    // (j, i) is never visited
+                    // (i, i) is never visited
+
+                    let i = head;
+
+                    while (i !== -1) {
+                        const ib = i * 3;
+
+                        const xi = positions[ib];
+                        const yi = positions[ib + 1];
+                        const zi = positions[ib + 2];
+
+                        let j = particleNext[i];
+
+                        while (j !== -1) {
+                            const jb = j * 3;
+
+                            const dx = xi - positions[jb];
+                            const dy = yi - positions[jb + 1];
+                            const dz = zi - positions[jb + 2];
+
+                            const r2 = dx * dx + dy * dy + dz * dz;
+
+                            if (r2 < h2) {
+                                if (pairCount >= pairCapacity) {
+                                    this.pairCount = pairCount;
+                                    this.ensurePairCapacity(pairCount + 1);
+
+                                    pairA = this.pairA;
+                                    pairB = this.pairB;
+                                    pairCapacity = this.pairCapacity;
+                                }
+
+                                pairA[pairCount] = i;
+                                pairB[pairCount] = j;
+                                pairCount++;
+                            }
+
+                            j = particleNext[j];
+                        }
+
+                        i = particleNext[i];
+                    }
+
+                    // ------------------------------------------------
+                    // 2. Forward neighbor cells only
+                    // ------------------------------------------------
+                    //
+                    // Half of the 26-cell neighborhood:
+                    //
+                    // dz = 0
+                    //   dy = 0 : dx = +1
+                    //   dy = +1: dx = -1, 0, +1
+                    //
+                    // dz = +1
+                    //   dy = -1, 0, +1
+                    //   dx = -1, 0, +1
+                    //
+                    // 1 + 3 + 9 = 13 neighbor cells.
+                    //
+                    // Therefore A -> B is processed,
+                    // but B -> A never is.
+
+                    for (let cellDz = 0; cellDz <= 1; cellDz++) {
+                        const neighborZ = z + cellDz;
+
+                        if (neighborZ >= cellsZ) {
+                            continue;
+                        }
+
+                        const minDy = cellDz === 0 ? 0 : -1;
+
+                        for (let cellDy = minDy; cellDy <= 1; cellDy++) {
+                            const neighborY = y + cellDy;
+
+                            if (neighborY < 0 || neighborY >= cellsY) {
+                                continue;
+                            }
+
+                            const minDx = (cellDz === 0 && cellDy === 0) ? 1 : -1;
+
+                            for (let cellDx = minDx; cellDx <= 1; cellDx++) {
+                                const neighborX = x + cellDx;
+
+                                if (neighborX < 0 || neighborX >= cellsX) {
+                                    continue;
+                                }
+
+                                const neighborCell =
+                                    neighborX +
+                                    neighborY * strideY +
+                                    neighborZ * strideZ;
+
+                                const neighborHead = cellHeads[neighborCell];
+
+                                if (neighborHead === -1) {
+                                    continue;
+                                }
+
+                                // ------------------------------------
+                                // Cross-cell particle pairs
+                                // ------------------------------------
+
+                                let i = head;
+
+                                while (i !== -1) {
+                                    const ib = i * 3;
+
+                                    const xi = positions[ib];
+                                    const yi = positions[ib + 1];
+                                    const zi = positions[ib + 2];
+
+                                    let j = neighborHead;
+
+                                    while (j !== -1) {
+                                        const jb = j * 3;
+
+                                        const dx = xi - positions[jb];
+                                        const dy = yi - positions[jb + 1];
+                                        const dz = zi - positions[jb + 2];
+
+                                        const r2 = dx * dx + dy * dy + dz * dz;
+
+                                        if (r2 < h2) {
+                                            if (pairCount >= pairCapacity) {
+                                                this.pairCount = pairCount;
+                                                this.ensurePairCapacity(pairCount + 1);
+
+                                                pairA = this.pairA;
+                                                pairB = this.pairB;
+                                                pairCapacity = this.pairCapacity;
+                                            }
+
+                                            pairA[pairCount] = i;
+                                            pairB[pairCount] = j;
+                                            pairCount++;
+                                        }
+
+                                        j = particleNext[j];
+                                    }
+
+                                    i = particleNext[i];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        this.pairCount = pairCount;
+
+        return pairCount;
+    }
+
+
+    // ----------------------------------------------------
     // debug helper
+    // ----------------------------------------------------
+
     setForceBenchmarkOptions(pressure, viscosity, cohesion)
     {
         this.enablePressureForce = pressure;
         this.enableViscosityForce = viscosity;
         this.enableCohesionForce = cohesion;
-    }
-
-    benchmarkDensityPass(iterations = 100) {
-
-        this.grid.build(
-            this.positions,
-            this.numParticles
-        );
-
-        for (let i = 0; i < 5; ++i) {
-            this.computeDensityAndPressure();
-        }
-
-        const start = performance.now();
-
-        for (let i = 0; i < iterations; ++i) {
-            this.computeDensityAndPressure();
-        }
-
-        return (performance.now() - start) / iterations;
     }
 
     benchmarkForcePass(iterations = 50) {
@@ -721,6 +960,7 @@ export class SPHSolver {
             this.numParticles
         );
 
+        this.buildUniqueNeighborPairs();
         this.computeDensityAndPressure();
 
         // Warm-up.
@@ -739,4 +979,57 @@ export class SPHSolver {
         const elapsed = performance.now() - start;
         return elapsed / iterations;
     }
+
+    benchmarkDensityPass(iterations = 100) {
+        this.grid.build(this.positions, this.numParticles);
+        this.buildUniqueNeighborPairs();
+
+        // Warm-up
+        for (let i = 0; i < 5; i++) {
+            this.computeDensityAndPressure();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; i++) {
+            this.computeDensityAndPressure();
+        }
+
+        return (performance.now() - start) / iterations;
+    }
+
+    benchmarkPairBuild(iterations = 100) {
+        // Frozen-state benchmark:
+        // build the grid once and repeatedly benchmark only
+        // pair generation.
+
+        this.grid.build(this.positions, this.numParticles);
+
+        // Warm-up
+        for (let i = 0; i < 5; i++) {
+            this.buildUniqueNeighborPairs();
+        }
+
+        const start = performance.now();
+
+        for (let i = 0; i < iterations; i++) {
+            this.buildUniqueNeighborPairs();
+        }
+
+        const elapsed = performance.now() - start;
+        const averageMs = elapsed / iterations;
+
+        const averageNeighbors =
+            this.numParticles > 0
+                ? (this.pairCount * 2) / this.numParticles
+                : 0.0;
+
+        return {
+            averageMs,
+            pairCount: this.pairCount,
+            averageNeighbors,
+            capacity: this.pairCapacity
+        };
+    }
+
 }

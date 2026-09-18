@@ -94,28 +94,28 @@ scene.add(dirLight);
 // };
 
 // 5808 particle count
-const simulationSize = {
-    countX: 22,
-    countY: 12,
-    countZ: 22,
-
-    boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
-    boxMax: new THREE.Vector3(1.35, 1.4, 2.0),
-
-    spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
-};
-
-// 7488 particle count
 // const simulationSize = {
-//     countX: 24,
-//     countY: 13,
-//     countZ: 24,
+//     countX: 22,
+//     countY: 12,
+//     countZ: 22,
 //
 //     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
-//     boxMax: new THREE.Vector3(1.50, 2.15, 2.20),
+//     boxMax: new THREE.Vector3(1.35, 1.4, 2.0),
 //
 //     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
 // };
+
+// 7488 particle count
+const simulationSize = {
+    countX: 24,
+    countY: 13,
+    countZ: 24,
+
+    boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+    boxMax: new THREE.Vector3(1.50, 1.4, 2.20),
+
+    spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+};
 
 // ------------------------------------------------------------
 // Container
@@ -215,6 +215,7 @@ let displayedFrameMs = 0.0;
 
 const displayedProfile = {
     gridMs: 0.0,
+    pairBuildMs: 0.0,
     densityMs: 0.0,
     forcesMs: 0.0,
     integrationMs: 0.0,
@@ -259,6 +260,23 @@ benchmarkActions.runDensityBenchmark = () => {
         `Average=${result.toFixed(3)} ms`
     );
 };
+
+benchmarkActions.runPairBenchmark =
+    () => {
+
+        const result =
+            solver.benchmarkPairBuild(
+                100
+            );
+
+        console.log(
+            `[Pair Benchmark] ` +
+            `Average=${result.averageMs.toFixed(3)} ms ` +
+            `Pairs=${result.pairCount} ` +
+            `AvgNeighbors=${result.averageNeighbors.toFixed(2)} ` +
+            `Capacity=${result.capacity}`
+        );
+    };
 
 // ------------------------------------------------------------
 // GUI
@@ -430,6 +448,13 @@ benchmarkFolder
         "runDensityBenchmark"
     )
     .name("Benchmark Density");
+
+benchmarkFolder
+    .add(
+        benchmarkActions,
+        "runPairBenchmark"
+    )
+    .name("Benchmark Pairs");
 // ---------------------------------------
 
 function updateRenderMode() {
@@ -853,6 +878,7 @@ function animate(currentTime) {
     // ------------------------------------------------------------
 
     let gridMs = 0.0;
+    let pairBuildMs = 0.0;
     let densityMs = 0.0;
     let forcesMs = 0.0;
     let integrationMs = 0.0;
@@ -872,6 +898,7 @@ function animate(currentTime) {
             solver.step(solver.fixedDt / solver.substeps);
 
             gridMs += solver.profile.gridMs;
+            pairBuildMs += solver.profile.pairBuildMs;
             densityMs += solver.profile.densityMs;
             forcesMs += solver.profile.forcesMs;
             integrationMs += solver.profile.integrationMs;
@@ -882,6 +909,12 @@ function animate(currentTime) {
             smoothProfileValue(
                 displayedProfile.gridMs,
                 gridMs
+            );
+
+        displayedProfile.pairBuildMs =
+            smoothProfileValue(
+                displayedProfile.pairBuildMs,
+                pairBuildMs
             );
 
         displayedProfile.densityMs =
@@ -911,6 +944,7 @@ function animate(currentTime) {
     else {
 
         displayedProfile.gridMs = 0.0;
+        displayedProfile.pairBuildMs = 0.0;
         displayedProfile.densityMs = 0.0;
         displayedProfile.forcesMs = 0.0;
         displayedProfile.integrationMs = 0.0;
@@ -952,6 +986,7 @@ function animate(currentTime) {
         
         <b>CPU Solver</b><br>
         Grid: ${displayedProfile.gridMs.toFixed(2)} ms<br>
+        Pair Build: ${displayedProfile.pairBuildMs.toFixed(2)} ms<br>
         Density: ${displayedProfile.densityMs.toFixed(2)} ms<br>
         Forces: ${displayedProfile.forcesMs.toFixed(2)} ms<br>
         Integration: ${displayedProfile.integrationMs.toFixed(2)} ms<br>
