@@ -240,7 +240,16 @@ const boxMin = simulationSize.boxMin;
 const boxMax = simulationSize.boxMax;
 
 const environmentSettings = {
-    showSimulationBounds: false
+    showSimulationBounds: false,
+
+    environmentMapUrls: [
+        "./assets/environment/daylight/posx.jpg",
+        "./assets/environment/daylight/negx.jpg",
+        "./assets/environment/daylight/posy.jpg",
+        "./assets/environment/daylight/negy.jpg",
+        "./assets/environment/daylight/posz.jpg",
+        "./assets/environment/daylight/negz.jpg"
+    ]
 };
 
 const environment =
@@ -251,9 +260,9 @@ const environment =
         boxMin,
         boxMax,
 
-        showSimulationBounds:
-        environmentSettings
-            .showSimulationBounds
+        showSimulationBounds: environmentSettings.showSimulationBounds,
+        environmentMapUrls: environmentSettings.environmentMapUrls
+
     });
 
 // ------------------------------------------------------------

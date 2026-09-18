@@ -11,7 +11,8 @@ export class Environment {
         renderer,
         boxMin,
         boxMax,
-        showSimulationBounds = false
+        showSimulationBounds = false,
+        environmentMapUrls = null
     })
     {
         this.scene = scene;
@@ -20,12 +21,19 @@ export class Environment {
         this.boxMin = boxMin.clone();
         this.boxMax = boxMax.clone();
 
+        this.environmentMapUrls = environmentMapUrls;
+
         this.size = new THREE.Vector3().subVectors(this.boxMax, this.boxMin);
 
         this.center = new THREE.Vector3().addVectors(this.boxMin, this.boxMax).multiplyScalar(0.5);
 
         this.root = new THREE.Group();
         this.root.name = "Environment";
+
+        this.environmentCubeTexture = null;
+        this.environmentLightingTexture = null;
+        this.environmentPmremTarget = null;
+        this.pmremGenerator = null;
 
         this.scene.add(this.root);
 
@@ -51,9 +59,13 @@ export class Environment {
         this.createMaterials();
 
         this.createGround();
-        this.createReservoir();
+        //this.createReservoir();
 
         this.createSimulationBounds(showSimulationBounds);
+
+        if (this.environmentMapUrls && this.environmentMapUrls.length === 6) {
+            this.loadEnvironmentMap(this.environmentMapUrls);
+        }
     }
 
 // ------------------------------------------------------------
@@ -238,6 +250,10 @@ export class Environment {
         return target.copy(this.sunDirection);
     }
 
+    getEnvironmentMap() {
+        return this.environmentCubeTexture;
+    }
+
     // ------------------------------------------------------------
     // Materials
     // ------------------------------------------------------------
@@ -261,13 +277,15 @@ export class Environment {
         this.reservoirFloorMaterial = new THREE.MeshStandardMaterial({
             color: 0x464c4e,
             roughness: 0.82,
-            metalness: 0.02
+            metalness: 0.02,
+            envMapIntensity: 0.20
         });
 
         this.reservoirWallMaterial = new THREE.MeshStandardMaterial({
             color: 0x596064,
             roughness: 0.72,
-            metalness: 0.04
+            metalness: 0.04,
+            envMapIntensity: 0.32
         });
     }
 
@@ -275,8 +293,9 @@ export class Environment {
 
         const material = new THREE.MeshStandardMaterial({
             color: 0x4b514d,
-            roughness: 0.92,
-            metalness: 0.0
+            roughness: 0.90,
+            metalness: 0.0,
+            envMapIntensity: 0.18
         });
 
         material.onBeforeCompile = (shader) => {
@@ -696,6 +715,18 @@ export class Environment {
 
     dispose() {
 
+        if (this.scene.background === this.environmentCubeTexture) {
+            this.scene.background = null;
+        }
+
+        if (this.scene.environment === this.environmentLightingTexture) {
+            this.scene.environment = null;
+        }
+
+        this.environmentPmremTarget?.dispose();
+        this.environmentCubeTexture?.dispose();
+        this.pmremGenerator?.dispose();
+
         const geometries = new Set();
         const materials = new Set();
 
@@ -727,4 +758,70 @@ export class Environment {
 
         this.scene.remove(this.root);
     }
+
+    // Helper methods
+
+    loadEnvironmentMap(urls) {
+
+        const loader = new THREE.CubeTextureLoader();
+
+        loader.load(
+            urls,
+
+            (cubeTexture) => {
+
+                cubeTexture.colorSpace = THREE.SRGBColorSpace;
+
+                this.environmentCubeTexture = cubeTexture;
+
+                if (!this.pmremGenerator) {
+                    this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+                    this.pmremGenerator.compileCubemapShader();
+                }
+
+                this.environmentPmremTarget?.dispose();
+
+                this.environmentPmremTarget =
+                    this.pmremGenerator.fromCubemap(cubeTexture);
+
+                this.environmentLightingTexture =
+                    this.environmentPmremTarget.texture;
+
+                // ----------------------------------------
+                // Background
+                // ----------------------------------------
+
+                this.scene.background = this.environmentCubeTexture;
+
+                // ----------------------------------------
+                // PBR environment lighting
+                // ----------------------------------------
+
+                this.scene.environment = this.environmentLightingTexture;
+
+                // ----------------------------------------
+                // Hide fallback gradient sky once the
+                // cubemap is ready.
+                // ----------------------------------------
+
+                if (this.sky) {
+                    this.sky.visible = false;
+                }
+
+                // Static shadows were already frozen.
+                // Rebuild once so the scene catches up.
+                this.renderer.shadowMap.needsUpdate = true;
+            },
+
+            undefined,
+
+            (error) => {
+                console.warn(
+                    "Environment cubemap failed to load. Falling back to gradient sky.",
+                    error
+                );
+            }
+        );
+    }
+
 }
