@@ -5,6 +5,7 @@ import GUI from "lil-gui";
 import { SPHSolver } from "./SPHSolver.js";
 import { ParticleRenderer } from "./ParticleRenderer.js";
 import { ScreenSpaceFluidRenderer  } from "./ScreenSpaceFluidRenderer.js";
+import { Environment } from "./Environment.js";
 
 // ------------------------------------------------------------
 // Scene setup
@@ -13,7 +14,7 @@ import { ScreenSpaceFluidRenderer  } from "./ScreenSpaceFluidRenderer.js";
 const canvas = document.getElementById("webgl-canvas");
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070a);
+//scene.background = new THREE.Color(0x05070a);
 
 const camera = new THREE.PerspectiveCamera(
     60,
@@ -29,6 +30,10 @@ const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true
 });
+
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+//renderer.toneMappingExposure = 1.0;
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -58,12 +63,12 @@ controls.enableDamping = true;
 // Lighting
 // ------------------------------------------------------------
 
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x223344, 1.4);
-scene.add(hemiLight);
-
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-dirLight.position.set(3, 5, 2);
-scene.add(dirLight);
+// const hemiLight = new THREE.HemisphereLight(0xffffff, 0x223344, 1.4);
+// scene.add(hemiLight);
+//
+// const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+// dirLight.position.set(3, 5, 2);
+// scene.add(dirLight);
 
 // ------------------------------------------------------------
 // Simulation size
@@ -206,26 +211,50 @@ const simulationSize = {
 // Container
 // ------------------------------------------------------------
 
+// const boxMin = simulationSize.boxMin;
+// const boxMax = simulationSize.boxMax;
+//
+// createContainerBox(scene, boxMin, boxMax);
+//
+// function createContainerBox(scene, min, max) {
+//     const size = new THREE.Vector3().subVectors(max, min);
+//     const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+//
+//     const boxGeometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+//     const boxEdges = new THREE.EdgesGeometry(boxGeometry);
+//
+//     const boxLines = new THREE.LineSegments(
+//         boxEdges,
+//         new THREE.LineBasicMaterial({ color: 0x335577 })
+//     );
+//
+//     boxLines.position.copy(center);
+//     scene.add(boxLines);
+// }
+
+// ------------------------------------------------------------
+// Environment
+// ------------------------------------------------------------
+
 const boxMin = simulationSize.boxMin;
 const boxMax = simulationSize.boxMax;
 
-createContainerBox(scene, boxMin, boxMax);
+const environmentSettings = {
+    showSimulationBounds: false
+};
 
-function createContainerBox(scene, min, max) {
-    const size = new THREE.Vector3().subVectors(max, min);
-    const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+const environment =
+    new Environment({
+        scene,
+        renderer,
 
-    const boxGeometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-    const boxEdges = new THREE.EdgesGeometry(boxGeometry);
+        boxMin,
+        boxMax,
 
-    const boxLines = new THREE.LineSegments(
-        boxEdges,
-        new THREE.LineBasicMaterial({ color: 0x335577 })
-    );
-
-    boxLines.position.copy(center);
-    scene.add(boxLines);
-}
+        showSimulationBounds:
+        environmentSettings
+            .showSimulationBounds
+    });
 
 // ------------------------------------------------------------
 // SPH simulation
@@ -390,6 +419,31 @@ const guiSettings = {
 };
 
 const gui = new GUI();
+
+const environmentFolder =
+    gui.addFolder(
+        "Environment"
+    );
+
+environmentFolder
+    .add(
+        environmentSettings,
+        "showSimulationBounds"
+    )
+    .name(
+        "Simulation Bounds"
+    )
+    .onChange(
+        (visible) => {
+            environment
+                .setSimulationBoundsVisible(
+                    visible
+                );
+        }
+    );
+
+environmentFolder.close();
+
 
 /*
 const presets = {

@@ -582,6 +582,10 @@ export class ScreenSpaceFluidRenderer {
 
                 if (fluidDepth <= 0.0) {
                     gl_FragColor = vec4(sceneColor, 1.0);
+                    
+                    #include <tonemapping_fragment>
+                    #include <colorspace_fragment>
+                    
                     return;
                 }
 
@@ -589,6 +593,10 @@ export class ScreenSpaceFluidRenderer {
 
                 if (fluidDepth >= sceneDepth - 0.001) {
                     gl_FragColor = vec4(sceneColor, 1.0);
+                    
+                    #include <tonemapping_fragment>
+                    #include <colorspace_fragment>
+
                     return;
                 }
 
@@ -655,6 +663,9 @@ export class ScreenSpaceFluidRenderer {
                 );
 
                 vec3 finalColor = mix(sceneColor, waterSurface, finalAlpha);
+                
+                #include <tonemapping_fragment>
+                #include <colorspace_fragment>
 
                 gl_FragColor = vec4(finalColor, 1.0);
             }
