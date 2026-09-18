@@ -244,17 +244,239 @@ export class Environment {
 
     createMaterials() {
 
-        this.groundMaterial = new THREE.MeshStandardMaterial({
-            color: 0x303630,
-            roughness: 0.95,
+        // ----------------------------------------
+        // Presentation ground
+        // ----------------------------------------
+
+        this.groundMaterial = this.createGroundMaterial();
+
+        // ----------------------------------------
+        // Reservoir
+        //
+        // Keep these as regular MeshStandardMaterial.
+        // They participate naturally in our existing
+        // sun + hemisphere lighting and shadow pass.
+        // ----------------------------------------
+
+        this.reservoirFloorMaterial = new THREE.MeshStandardMaterial({
+            color: 0x464c4e,
+            roughness: 0.82,
+            metalness: 0.02
+        });
+
+        this.reservoirWallMaterial = new THREE.MeshStandardMaterial({
+            color: 0x596064,
+            roughness: 0.72,
+            metalness: 0.04
+        });
+    }
+
+    createGroundMaterial() {
+
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x4b514d,
+            roughness: 0.92,
             metalness: 0.0
         });
 
-        this.reservoirMaterial = new THREE.MeshStandardMaterial({
-            color: 0x3d4346,
-            roughness: 0.88,
-            metalness: 0.03
-        });
+        material.onBeforeCompile = (shader) => {
+
+            // ----------------------------------------
+            // Ground presentation controls
+            // ----------------------------------------
+
+            shader.uniforms.uMinorGridSize = { value: 0.50 };
+            shader.uniforms.uMajorGridEvery = { value: 4.0 };
+            shader.uniforms.uMinorGridColor = { value: new THREE.Color(0x424844) };
+            shader.uniforms.uMajorGridColor = { value: new THREE.Color(0x353b38) };
+            shader.uniforms.uGridStrength = { value: 0.70 };
+            shader.uniforms.uLargeVariationStrength = { value: 0.035 };
+
+            // ----------------------------------------
+            // World-space position
+            // ----------------------------------------
+
+            shader.vertexShader = `
+            varying vec3 vGroundWorldPosition;
+        ` + shader.vertexShader;
+
+            shader.vertexShader = shader.vertexShader.replace(
+                "#include <worldpos_vertex>",
+                `
+            #include <worldpos_vertex>
+
+            vGroundWorldPosition =
+                (modelMatrix * vec4(transformed, 1.0)).xyz;
+            `
+            );
+
+            // ----------------------------------------
+            // Fragment uniforms
+            // ----------------------------------------
+
+            shader.fragmentShader = `
+            varying vec3 vGroundWorldPosition;
+
+            uniform float uMinorGridSize;
+            uniform float uMajorGridEvery;
+
+            uniform vec3 uMinorGridColor;
+            uniform vec3 uMajorGridColor;
+
+            uniform float uGridStrength;
+            uniform float uLargeVariationStrength;
+        ` + shader.fragmentShader;
+
+            // ----------------------------------------
+            // Inject procedural presentation pattern
+            //
+            // We do this AFTER Three.js applies the
+            // regular material color, but BEFORE the
+            // standard PBR lighting calculation.
+            //
+            // Therefore:
+            //
+            //     grid/color
+            //          ↓
+            // MeshStandardMaterial lighting
+            //          ↓
+            // shadows / sun / hemisphere light
+            //
+            // remain fully intact.
+            // ----------------------------------------
+
+            shader.fragmentShader = shader.fragmentShader.replace(
+                "#include <color_fragment>",
+                `
+            #include <color_fragment>
+
+            // ----------------------------------------------------
+            // Large-scale surface variation
+            //
+            // Extremely subtle. Its purpose is just to prevent
+            // the ground from looking like a perfectly uniform
+            // computer-generated plane.
+            // ----------------------------------------------------
+
+            float variationA = sin(vGroundWorldPosition.x * 0.63);
+            float variationB = sin(vGroundWorldPosition.z * 0.47);
+
+            float largeVariation =
+                variationA *
+                variationB *
+                uLargeVariationStrength;
+
+            diffuseColor.rgb *= 1.0 + largeVariation;
+
+            // ----------------------------------------------------
+            // Minor world-space grid
+            // ----------------------------------------------------
+
+            vec2 minorCoord =
+                vGroundWorldPosition.xz /
+                uMinorGridSize;
+
+            vec2 minorDistance =
+                abs(
+                    fract(minorCoord - 0.5) -
+                    0.5
+                );
+
+            // Pixel-space anti-aliasing.
+            vec2 minorAA = fwidth(minorCoord);
+
+            float minorLineX =
+                1.0 -
+                smoothstep(
+                    minorAA.x * 0.55,
+                    minorAA.x * 1.35,
+                    minorDistance.x
+                );
+
+            float minorLineZ =
+                1.0 -
+                smoothstep(
+                    minorAA.y * 0.55,
+                    minorAA.y * 1.35,
+                    minorDistance.y
+                );
+
+            float minorLine = max(minorLineX, minorLineZ);
+
+            // ----------------------------------------------------
+            // Major grid
+            // ----------------------------------------------------
+
+            float majorGridSize =
+                uMinorGridSize *
+                uMajorGridEvery;
+
+            vec2 majorCoord =
+                vGroundWorldPosition.xz /
+                majorGridSize;
+
+            vec2 majorDistance =
+                abs(
+                    fract(majorCoord - 0.5) -
+                    0.5
+                );
+
+            vec2 majorAA = fwidth(majorCoord);
+
+            float majorLineX =
+                1.0 -
+                smoothstep(
+                    majorAA.x * 0.70,
+                    majorAA.x * 1.65,
+                    majorDistance.x
+                );
+
+            float majorLineZ =
+                1.0 -
+                smoothstep(
+                    majorAA.y * 0.70,
+                    majorAA.y * 1.65,
+                    majorDistance.y
+                );
+
+            float majorLine = max(majorLineX, majorLineZ);
+
+            // ----------------------------------------------------
+            // Composite
+            //
+            // Minor grid stays restrained.
+            // Major divisions are slightly stronger.
+            // ----------------------------------------------------
+
+            diffuseColor.rgb =
+                mix(
+                    diffuseColor.rgb,
+                    uMinorGridColor,
+                    minorLine *
+                    0.34 *
+                    uGridStrength
+                );
+
+            diffuseColor.rgb =
+                mix(
+                    diffuseColor.rgb,
+                    uMajorGridColor,
+                    majorLine *
+                    0.72 *
+                    uGridStrength
+                );
+            `
+            );
+
+            // Useful if we want GUI controls later without
+            // rebuilding the material.
+            material.userData.shader = shader;
+        };
+
+        material.customProgramCacheKey = () =>
+            "presentation-ground-v1";
+
+        return material;
     }
 
     // ------------------------------------------------------------
@@ -305,8 +527,7 @@ export class Environment {
         // Floor
         // ----------------------------------------
 
-        this.createBoxMesh(
-            "Reservoir_Floor",
+        this.createBoxMesh("Reservoir_Floor",
 
             new THREE.Vector3(
                 this.size.x + t * 2.0,
@@ -318,15 +539,16 @@ export class Environment {
                 this.center.x,
                 this.boxMin.y - this.floorThickness * 0.5,
                 this.center.z
-            )
+            ),
+
+            this.reservoirFloorMaterial
         );
 
         // ----------------------------------------
         // Left wall
         // ----------------------------------------
 
-        this.createBoxMesh(
-            "Reservoir_LeftWall",
+        this.createBoxMesh("Reservoir_LeftWall",
 
             new THREE.Vector3(
                 t,
@@ -406,14 +628,15 @@ export class Environment {
         );
     }
 
-    createBoxMesh(name, dimensions, position) {
+    createBoxMesh(name, dimensions, position, material = this.reservoirWallMaterial) {
+
         const geometry = new THREE.BoxGeometry(
             dimensions.x,
             dimensions.y,
             dimensions.z
         );
 
-        const mesh = new THREE.Mesh(geometry, this.reservoirMaterial);
+        const mesh = new THREE.Mesh(geometry, material);
 
         mesh.name = name;
 
