@@ -302,7 +302,7 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
 
     // Use a visual radius larger than the physics radius
     // so the projected particles overlap into a surface.
-    particleRadius: solver.h * 0.45,
+    particleRadius: solver.h * 0.48,  //0.45
 
     width: window.innerWidth,
     height: window.innerHeight,

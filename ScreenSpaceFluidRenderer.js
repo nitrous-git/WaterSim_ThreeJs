@@ -450,13 +450,15 @@ export class ScreenSpaceFluidRenderer {
                 uLightDirection: { value: new THREE.Vector3(0.5, 1.0, 0.35).normalize() },
 
                 uOpacity: { value: 0.08 },
-                uRefractionStrength: { value: 0.017 },
+                uRefractionStrength: { value: 0.015 }, //0.017
                 uFresnelStrength: { value: 1.5 },
-                uSpecularStrength: { value: 0.8 },
+                uSpecularStrength: { value: 0.7 }, // 0.8
 
                 uAbsorptionStrength: { value: 5.8 },
                 uThicknessOpacity: { value: 2.1 },
-                uReflectionStrength: { value: 0.95 }
+                uReflectionStrength: { value: 0.95 },
+
+                uNormalSampleRadius: {value: 2.0}
             },
             depthTest: false,
             depthWrite: false,
@@ -494,6 +496,8 @@ export class ScreenSpaceFluidRenderer {
             uniform float uAbsorptionStrength;
             uniform float uThicknessOpacity;
             uniform float uReflectionStrength;
+            
+            uniform float uNormalSampleRadius;
 
             varying vec2 vUv;
 
@@ -537,8 +541,8 @@ export class ScreenSpaceFluidRenderer {
             vec3 reconstructNormal(vec2 uv, float centerDepth) {
                 vec3 centerPosition = reconstructViewPosition(uv, centerDepth);
 
-                vec2 offsetX = vec2(uTexelSize.x, 0.0);
-                vec2 offsetY = vec2(0.0, uTexelSize.y);
+                vec2 offsetX = vec2(uTexelSize.x * uNormalSampleRadius, 0.0);
+                vec2 offsetY = vec2(0.0, uTexelSize.y * uNormalSampleRadius);
 
                 float rightDepth = validNeighborDepth(uv + offsetX, centerDepth);
                 float leftDepth  = validNeighborDepth(uv - offsetX, centerDepth);
@@ -668,10 +672,10 @@ export class ScreenSpaceFluidRenderer {
 
                 vec3 finalColor = mix(sceneColor, waterSurface, finalAlpha);
                 
+                gl_FragColor = vec4(finalColor, 1.0);
+                
                 #include <tonemapping_fragment>
                 #include <colorspace_fragment>
-
-                gl_FragColor = vec4(finalColor, 1.0);
             }
         `
         });
