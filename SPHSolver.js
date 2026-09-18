@@ -78,7 +78,6 @@ export class SPHSolver {
         this.pairA = new Int32Array(this.pairCapacity);
         this.pairB = new Int32Array(this.pairCapacity);
 
-
         this.grid = new SpatialHashGrid3D(this.h, this.boxMin, this.boxMax);
 
         // debug forces
