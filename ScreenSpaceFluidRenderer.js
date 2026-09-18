@@ -62,6 +62,10 @@ export class ScreenSpaceFluidRenderer {
         this.allocateRenderTargets();
     }
 
+    setLightDirection(direction) {
+        this.lightDirectionWorld.copy(direction).normalize();
+    }
+
     // ------------------------------------------------------------
     // Materials
     // ------------------------------------------------------------

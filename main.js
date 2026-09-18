@@ -32,7 +32,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMapping = THREE.NoToneMapping; //ACESFilmicToneMapping  NoToneMapping
 //renderer.toneMappingExposure = 1.0;
 
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -312,6 +312,7 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     blurIterations: 4
 });
 
+screenSpaceFluidRenderer.setLightDirection(environment.getSunDirection());
 screenSpaceFluidRenderer.setFluidResolutionScale(screenSpaceFluidRenderer.fluidResolutionScale);
 // ------------------------------------------------------------
 // Debug panel

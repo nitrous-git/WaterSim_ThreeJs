@@ -44,7 +44,10 @@ export class Environment {
         // Setup
         // ----------------------------------------
 
-        this.setupBaselineLighting();
+        this.setupRenderer();
+        this.createSky();
+        this.setupOutdoorLighting();
+
         this.createMaterials();
 
         this.createGround();
@@ -53,29 +56,186 @@ export class Environment {
         this.createSimulationBounds(showSimulationBounds);
     }
 
+// ------------------------------------------------------------
+// Renderer
+// ------------------------------------------------------------
+
+    setupRenderer() {
+
+        this.renderer.shadowMap.enabled = true;
+
+        // Three.js r182:
+        // PCFShadowMap is now the soft PCF implementation.
+        this.renderer.shadowMap.type = THREE.PCFShadowMap;
+
+        // Everything casting shadows in this environment
+        // is currently static.
+        //
+        // Build the shadow map once instead of every frame.
+        this.renderer.shadowMap.autoUpdate = false;
+        this.renderer.shadowMap.needsUpdate = true;
+    }
+
     // ------------------------------------------------------------
-    // Baseline presentation
+    // Sky
     // ------------------------------------------------------------
 
-    setupBaselineLighting() {
+    createSky() {
 
-        // Keep the current look for now.
-        // Commit 3 will replace this with the real outdoor sky.
-        this.scene.background = new THREE.Color(0x05070a);
+        this.skyHorizonColor = new THREE.Color(0xc9ddea);
+        this.skyZenithColor = new THREE.Color(0x4d83bb);
 
-        this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x223344, 1.4);
+        const largestDimension = Math.max(this.size.x, this.size.z);
+
+        const skyRadius = largestDimension * 12.0;
+
+        const geometry = new THREE.SphereGeometry(skyRadius, 48, 24);
+
+        const positions = geometry.attributes.position;
+
+        const colors = new Float32Array(positions.count * 3);
+
+        const color = new THREE.Color();
+
+        for (let i = 0; i < positions.count; i++) {
+
+            const normalizedY = positions.getY(i) / skyRadius;
+
+            let t = THREE.MathUtils.clamp((normalizedY + 0.05) / 0.95, 0.0, 1.0);
+
+            // Smoothstep-like interpolation.
+            t = t * t * (3.0 - 2.0 * t);
+
+            color
+                .copy(this.skyHorizonColor)
+                .lerp(this.skyZenithColor, t);
+
+            colors[i * 3 + 0] = color.r;
+            colors[i * 3 + 1] = color.g;
+            colors[i * 3 + 2] = color.b;
+        }
+
+        geometry.setAttribute(
+            "color",
+            new THREE.BufferAttribute(colors, 3)
+        );
+
+        const material = new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            side: THREE.BackSide,
+
+            depthWrite: false,
+
+            // Sky is self-lit.
+            toneMapped: true
+        });
+
+        this.sky = new THREE.Mesh(geometry, material);
+
+        this.sky.name = "Environment_Sky";
+
+        this.sky.position.set(
+            this.center.x,
+            this.boxMin.y,
+            this.center.z
+        );
+
+        this.root.add(this.sky);
+
+        // Fallback clear/background color.
+        this.scene.background = this.skyHorizonColor;
+    }
+
+    // ------------------------------------------------------------
+    // Outdoor lighting
+    // ------------------------------------------------------------
+
+    setupOutdoorLighting() {
+
+        // Direction from the scene toward the sun.
+        //
+        // This convention is useful because the fluid shader
+        // also expects a surface-to-light direction.
+        this.sunDirection = new THREE.Vector3(-0.55, 1.0, 0.35).normalize();
+
+        // ----------------------------------------
+        // Ambient sky / ground contribution
+        // ----------------------------------------
+
+        this.hemiLight = new THREE.HemisphereLight(
+            0xc9e4ff,
+            0x465044,
+            0.9
+        );
 
         this.hemiLight.name = "Environment_HemisphereLight";
 
         this.root.add(this.hemiLight);
 
-        this.sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        // ----------------------------------------
+        // Sun
+        // ----------------------------------------
+
+        this.sunLight = new THREE.DirectionalLight(0xfff1d6, 2.0);
 
         this.sunLight.name = "Environment_Sun";
 
-        this.sunLight.position.set(3, 5, 2);
+        this.sunLight.castShadow = true;
+
+        // DirectionalLight points FROM its position
+        // TOWARD its target.
+        this.sunTarget = new THREE.Object3D();
+
+        this.sunTarget.name = "Environment_SunTarget";
+
+        this.sunTarget.position.copy(this.center);
+
+        this.root.add(this.sunTarget);
+
+        this.sunLight.target = this.sunTarget;
+
+        const largestDimension = Math.max(this.size.x, this.size.z);
+
+        const sunDistance = largestDimension * 3.0;
+
+        this.sunLight.position
+            .copy(this.center)
+            .addScaledVector(this.sunDirection, sunDistance);
+
+        this.configureSunShadow(largestDimension, sunDistance);
 
         this.root.add(this.sunLight);
+    }
+
+    configureSunShadow(largestDimension, sunDistance) {
+
+        const shadow = this.sunLight.shadow;
+
+        shadow.mapSize.set(2048, 2048);
+
+        const shadowExtent = largestDimension * 1.8;
+
+        shadow.camera.left = -shadowExtent;
+        shadow.camera.right = shadowExtent;
+        shadow.camera.top = shadowExtent;
+        shadow.camera.bottom = -shadowExtent;
+
+        shadow.camera.near = 0.1;
+        shadow.camera.far = sunDistance * 2.0;
+
+        // Small bias values because the scene itself
+        // is only a few world units across.
+        shadow.bias = -0.0002;
+        shadow.normalBias = 0.01;
+
+        shadow.radius = 2.0;
+        shadow.intensity = 0.8;
+
+        shadow.camera.updateProjectionMatrix();
+    }
+
+    getSunDirection(target = new THREE.Vector3()) {
+        return target.copy(this.sunDirection);
     }
 
     // ------------------------------------------------------------
@@ -121,7 +281,7 @@ export class Environment {
             this.center.z
         );
 
-        // Already prepared for the shadow pass.
+        // prepare for the shadow pass.
         this.ground.receiveShadow = true;
 
         this.root.add(this.ground);
@@ -259,9 +419,6 @@ export class Environment {
 
         mesh.position.copy(position);
 
-        // These do nothing until we enable
-        // shadow maps in the lighting pass,
-        // but the meshes are ready for it.
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
