@@ -106,16 +106,101 @@ scene.add(dirLight);
 // };
 
 // 7488 particle count
+// const simulationSize = {
+//     countX: 24,
+//     countY: 13,
+//     countZ: 24,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.50, 1.4, 2.20),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 8750 particle count
+// const simulationSize = {
+//     countX: 25,
+//     countY: 14,
+//     countZ: 25,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.591, 1.475, 2.349),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 9464 particle count
+// const simulationSize = {
+//     countX: 26,
+//     countY: 14,
+//     countZ: 26,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.638, 1.514, 2.427),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 10206 particle count
 const simulationSize = {
-    countX: 24,
-    countY: 13,
-    countZ: 24,
+    countX: 27,
+    countY: 14,
+    countZ: 27,
 
     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
-    boxMax: new THREE.Vector3(1.50, 1.4, 2.20),
+    boxMax: new THREE.Vector3(1.685, 1.552, 2.504),
 
     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
 };
+
+// 10976 particle count
+// const simulationSize = {
+//     countX: 28,
+//     countY: 14,
+//     countZ: 28,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.731, 1.590, 2.581),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 11760 particle count
+// const simulationSize = {
+//     countX: 28,
+//     countY: 15,
+//     countZ: 28,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.776, 1.627, 2.655),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 12615 particle count
+// const simulationSize = {
+//     countX: 29,
+//     countY: 15,
+//     countZ: 29,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.823, 1.666, 2.732),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
+// 13500 particle count
+// const simulationSize = {
+//     countX: 30,
+//     countY: 15,
+//     countZ: 30,
+//
+//     boxMin: new THREE.Vector3(-0.2, 0.0, -0.6),
+//     boxMax: new THREE.Vector3(1.869, 1.704, 2.808),
+//
+//     spawnOrigin: new THREE.Vector3(-0.2, 0.0, -0.5)
+// };
+
 
 // ------------------------------------------------------------
 // Container
