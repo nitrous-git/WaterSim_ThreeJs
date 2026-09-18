@@ -265,6 +265,11 @@ const environment =
 
     });
 
+// Nothing below this point is initialized until the
+// environment cubemap / PMREM is ready.
+await environment.initialize();
+canvas.style.opacity = "1";
+
 // ------------------------------------------------------------
 // SPH simulation
 // ------------------------------------------------------------
@@ -318,7 +323,9 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
     pixelRatio: 1.0,
     fluidResolutionScale: 0.5,
 
-    blurIterations: 4
+    blurIterations: 4,
+
+    environmentMap: environment.getEnvironmentMap()
 });
 
 screenSpaceFluidRenderer.setLightDirection(environment.getSunDirection());
@@ -1184,3 +1191,4 @@ function animate(currentTime) {
 }
 
 requestAnimationFrame(animate);
+

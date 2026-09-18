@@ -15,6 +15,7 @@ export class ScreenSpaceFluidRenderer {
         this.fluidResolutionScale = options.fluidResolutionScale ?? 1.0;
 
         this.blurIterations = options.blurIterations ?? 10;
+        this.environmentMap = options.environmentMap ?? null;
 
         this.positionAttribute = new THREE.BufferAttribute(this.positions, 3);
         this.positionAttribute.setUsage(THREE.DynamicDrawUsage);
@@ -64,6 +65,20 @@ export class ScreenSpaceFluidRenderer {
 
     setLightDirection(direction) {
         this.lightDirectionWorld.copy(direction).normalize();
+    }
+
+    setEnvironmentMap(texture) {
+
+        this.environmentMap = texture ?? null;
+
+        if (!this.compositeMaterial) {
+            return;
+        }
+
+        this.compositeMaterial.uniforms.uEnvironmentMap.value = this.environmentMap;
+
+        this.compositeMaterial.uniforms.uHasEnvironmentMap.value =
+            this.environmentMap ? 1.0 : 0.0;
     }
 
     // ------------------------------------------------------------
@@ -438,8 +453,12 @@ export class ScreenSpaceFluidRenderer {
                 uFluidDepth: { value: null },
                 uFluidThickness: { value: null },
 
+                uEnvironmentMap: {value: this.environmentMap},
+                uHasEnvironmentMap: {value: this.environmentMap ? 1.0 : 0.0},
+
                 uTexelSize: { value: new THREE.Vector2(1.0, 1.0) },
                 uProjectionMatrixInverse: { value: new THREE.Matrix4() },
+                uViewMatrixInverse: {value: new THREE.Matrix4()},
 
                 uCameraNear: { value: 0.01 },
                 uCameraFar: { value: 100.0 },
@@ -477,9 +496,13 @@ export class ScreenSpaceFluidRenderer {
             uniform sampler2D uSceneDepth;
             uniform sampler2D uFluidDepth;
             uniform sampler2D uFluidThickness;
+            
+            uniform samplerCube uEnvironmentMap;
+            uniform float uHasEnvironmentMap;
 
             uniform vec2 uTexelSize;
             uniform mat4 uProjectionMatrixInverse;
+            uniform mat4 uViewMatrixInverse;
 
             uniform float uCameraNear;
             uniform float uCameraFar;
@@ -574,13 +597,31 @@ export class ScreenSpaceFluidRenderer {
                 return normal;
             }
 
-            vec3 getSkyReflectionColor(vec3 reflectedDirection) {
-                float t = clamp(reflectedDirection.y * 0.5 + 0.5, 0.0, 1.0);
-
+            vec3 getFallbackSkyColor(vec3 worldDirection) {
+            
+                float t = clamp(worldDirection.y * 0.5 + 0.5, 0.0, 1.0);
+            
                 vec3 horizonColor = vec3(0.78, 0.92, 1.0);
                 vec3 skyColor = vec3(0.08, 0.26, 0.62);
-
+            
                 return mix(horizonColor, skyColor, t);
+            }
+            
+            vec3 getEnvironmentReflection(vec3 worldDirection) {
+            
+                if (uHasEnvironmentMap < 0.5) {
+            
+                    return getFallbackSkyColor(worldDirection);
+                }
+            
+                // Three.js regular CubeTexture convention.
+                vec3 cubeDirection = vec3(
+                    -worldDirection.x,
+                     worldDirection.y,
+                     worldDirection.z
+                );
+            
+                return textureCube(uEnvironmentMap, cubeDirection).rgb;
             }
 
             void main() {
@@ -647,8 +688,25 @@ export class ScreenSpaceFluidRenderer {
                     clamp(0.25 + diffuse * 0.75 - thickness * 0.35, 0.0, 1.0)
                 );
 
-                vec3 reflectedDirection = reflect(-viewDirection, normal);
-                vec3 reflectionColor = getSkyReflectionColor(reflectedDirection);
+                // ----------------------------------------------------
+                // Reflection direction
+                //
+                // Surface position + normals currently exist
+                // in view space.
+                // ----------------------------------------------------
+                
+                vec3 reflectedDirectionView = reflect(-viewDirection, normal);
+                
+                // ----------------------------------------------------
+                // Convert view-space direction back into
+                // world space before sampling the environment.
+                //
+                // w = 0.0 because this is a direction.
+                // Camera translation must not affect it.
+                // ----------------------------------------------------
+                
+                vec3 reflectedDirectionWorld = normalize((uViewMatrixInverse * vec4(reflectedDirectionView, 0.0)).xyz);
+                vec3 reflectionColor = getEnvironmentReflection(reflectedDirectionWorld);
 
                 vec3 refractedWater = mix(
                     refractedScene,
@@ -850,6 +908,7 @@ export class ScreenSpaceFluidRenderer {
         this.thicknessMaterial.uniforms.uPointScale.value = this.fluidTargetHeight * camera.projectionMatrix.elements[5];
 
         this.compositeMaterial.uniforms.uProjectionMatrixInverse.value.copy(camera.projectionMatrixInverse);
+        this.compositeMaterial.uniforms.uViewMatrixInverse.value.copy(camera.matrixWorld);
         this.compositeMaterial.uniforms.uCameraNear.value = camera.near;
         this.compositeMaterial.uniforms.uCameraFar.value = camera.far;
 

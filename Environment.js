@@ -59,13 +59,9 @@ export class Environment {
         this.createMaterials();
 
         this.createGround();
-        //this.createReservoir();
+        this.createReservoir();
 
         this.createSimulationBounds(showSimulationBounds);
-
-        if (this.environmentMapUrls && this.environmentMapUrls.length === 6) {
-            this.loadEnvironmentMap(this.environmentMapUrls);
-        }
     }
 
 // ------------------------------------------------------------
@@ -765,63 +761,87 @@ export class Environment {
 
         const loader = new THREE.CubeTextureLoader();
 
-        loader.load(
-            urls,
+        return new Promise((resolve, reject) => {
 
-            (cubeTexture) => {
+            loader.load(
+                urls,
 
-                cubeTexture.colorSpace = THREE.SRGBColorSpace;
+                (cubeTexture) => {
 
-                this.environmentCubeTexture = cubeTexture;
+                    // ----------------------------------------
+                    // Raw cubemap
+                    //
+                    // Used for:
+                    // - visible scene background
+                    // - SSFR reflection sampling
+                    // ----------------------------------------
 
-                if (!this.pmremGenerator) {
-                    this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-                    this.pmremGenerator.compileCubemapShader();
+                    cubeTexture.colorSpace = THREE.SRGBColorSpace;
+
+                    this.environmentCubeTexture = cubeTexture;
+
+                    // ----------------------------------------
+                    // PMREM environment
+                    //
+                    // Used by Three.js PBR materials.
+                    // ----------------------------------------
+
+                    if (!this.pmremGenerator) {
+                        this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+                        this.pmremGenerator.compileCubemapShader();
+                    }
+
+                    this.environmentPmremTarget?.dispose();
+
+                    this.environmentPmremTarget =
+                        this.pmremGenerator.fromCubemap(cubeTexture);
+
+                    this.environmentLightingTexture =
+                        this.environmentPmremTarget.texture;
+
+                    // ----------------------------------------
+                    // Apply final environment
+                    // ----------------------------------------
+
+                    this.scene.background = this.environmentCubeTexture;
+                    this.scene.environment = this.environmentLightingTexture;
+
+                    // Fallback gradient sky is no longer needed.
+                    if (this.sky) {
+                        this.sky.visible = false;
+                    }
+
+                    // Environment is static, but make sure
+                    // our cached shadow state is refreshed.
+                    this.renderer.shadowMap.needsUpdate = true;
+
+                    resolve(this.environmentCubeTexture);
+                },
+
+                undefined,
+
+                (error) => {
+
+                    reject(error);
                 }
-
-                this.environmentPmremTarget?.dispose();
-
-                this.environmentPmremTarget =
-                    this.pmremGenerator.fromCubemap(cubeTexture);
-
-                this.environmentLightingTexture =
-                    this.environmentPmremTarget.texture;
-
-                // ----------------------------------------
-                // Background
-                // ----------------------------------------
-
-                this.scene.background = this.environmentCubeTexture;
-
-                // ----------------------------------------
-                // PBR environment lighting
-                // ----------------------------------------
-
-                this.scene.environment = this.environmentLightingTexture;
-
-                // ----------------------------------------
-                // Hide fallback gradient sky once the
-                // cubemap is ready.
-                // ----------------------------------------
-
-                if (this.sky) {
-                    this.sky.visible = false;
-                }
-
-                // Static shadows were already frozen.
-                // Rebuild once so the scene catches up.
-                this.renderer.shadowMap.needsUpdate = true;
-            },
-
-            undefined,
-
-            (error) => {
-                console.warn(
-                    "Environment cubemap failed to load. Falling back to gradient sky.",
-                    error
-                );
-            }
-        );
+            );
+        });
     }
 
+    async initialize() {
+
+        if (!this.environmentMapUrls || this.environmentMapUrls.length !== 6)
+        {
+            return null;
+        }
+
+        try
+        {
+            await this.loadEnvironmentMap(this.environmentMapUrls);
+        }
+        catch (error) {
+            console.warn("Environment map could not be loaded. Using fallback sky.", error);
+            return null;
+        }
+    }
 }
