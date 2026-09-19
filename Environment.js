@@ -41,10 +41,10 @@ export class Environment {
         // Reservoir dimensions
         // ----------------------------------------
 
-        this.floorThickness = 0.12;
-        this.wallThickness = 0.10;
+        this.floorThickness = 0.08;
+        this.wallThickness = 0.08;
 
-        this.wallHeight = Math.min(Math.max(this.size.y * 0.42, 0.45), 0.70);
+        this.wallHeight = Math.min(Math.max(this.size.y * 0.38, 0.40), 0.60);
 
         this.frontLipHeight = Math.min(this.wallHeight, 0.65);
 
@@ -59,7 +59,7 @@ export class Environment {
         this.createMaterials();
 
         this.createGround();
-        //this.createReservoir();
+        this.createReservoir();
 
         this.createSimulationBounds(showSimulationBounds);
     }

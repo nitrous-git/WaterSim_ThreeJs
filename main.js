@@ -15,14 +15,6 @@ const canvas = document.getElementById("webgl-canvas");
 
 const startupOverlay = document.getElementById("startup-overlay");
 
-startupOverlay.addEventListener(
-    "transitionend",
-    () => {
-        startupOverlay.remove();
-    },
-    { once: true }
-);
-
 const scene = new THREE.Scene();
 //scene.background = new THREE.Color(0x05070a);
 
@@ -33,8 +25,8 @@ const camera = new THREE.PerspectiveCamera(
     100
 );
 
-camera.position.set(5.0, 2.0, 3.0); //3.5, 1.5, 2.5
-camera.lookAt(0, 0.0, 0);
+camera.position.set(5.0, 1.8, 2.0); //3.5, 1.5, 2.5
+camera.lookAt(0.0, 0.0, 0.0);
 
 const renderer = new THREE.WebGLRenderer({
     canvas,
