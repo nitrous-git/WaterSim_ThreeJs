@@ -13,6 +13,16 @@ import { Environment } from "./Environment.js";
 
 const canvas = document.getElementById("webgl-canvas");
 
+const startupOverlay = document.getElementById("startup-overlay");
+
+startupOverlay.addEventListener(
+    "transitionend",
+    () => {
+        startupOverlay.remove();
+    },
+    { once: true }
+);
+
 const scene = new THREE.Scene();
 //scene.background = new THREE.Color(0x05070a);
 
@@ -23,7 +33,7 @@ const camera = new THREE.PerspectiveCamera(
     100
 );
 
-camera.position.set(3.5, 1.5, 2.5);
+camera.position.set(5.0, 2.0, 3.0); //3.5, 1.5, 2.5
 camera.lookAt(0, 0.0, 0);
 
 const renderer = new THREE.WebGLRenderer({
@@ -268,7 +278,6 @@ const environment =
 // Nothing below this point is initialized until the
 // environment cubemap / PMREM is ready.
 await environment.initialize();
-canvas.style.opacity = "1";
 
 // ------------------------------------------------------------
 // SPH simulation
@@ -1001,6 +1010,8 @@ let previousTime = performance.now();
 let accumulator = 0;
 const maxFrameDt = 0.05;
 
+let startupOverlayRemoved = false;
+
 function animate(currentTime) {
     requestAnimationFrame(animate);
 
@@ -1188,6 +1199,14 @@ function animate(currentTime) {
 
     const renderSubmitMs = performance.now() - renderStart;
     displayedProfile.renderSubmitMs = smoothProfileValue(displayedProfile.renderSubmitMs, renderSubmitMs);
+
+    // Reveal application
+    if (!startupOverlayRemoved) {
+        startupOverlayRemoved = true;
+        requestAnimationFrame(() => {
+            startupOverlay.classList.add("is-hidden");
+        });
+    }
 }
 
 requestAnimationFrame(animate);

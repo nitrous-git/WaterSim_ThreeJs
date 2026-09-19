@@ -59,7 +59,7 @@ export class Environment {
         this.createMaterials();
 
         this.createGround();
-        this.createReservoir();
+        //this.createReservoir();
 
         this.createSimulationBounds(showSimulationBounds);
     }
