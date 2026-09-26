@@ -242,6 +242,7 @@ const boxMin = simulationSize.boxMin;
 const boxMax = simulationSize.boxMax;
 
 const environmentSettings = {
+    showReservoir: true,
     showSimulationBounds: false,
 
     environmentMapUrls: [
@@ -460,7 +461,24 @@ environmentFolder
         }
     );
 
-environmentFolder.close();
+environmentFolder
+    .add(
+        environmentSettings,
+        "showReservoir"
+    )
+    .name(
+        "Reservoir"
+    )
+    .onChange(
+        (visible) => {
+            environment
+                .setReservoirVisible(
+                    visible
+                );
+        }
+    );
+
+environmentFolder.open();
 
 
 /*
@@ -612,6 +630,8 @@ benchmarkFolder
         "runPairBenchmark"
     )
     .name("Benchmark Pairs");
+
+benchmarkFolder.close();
 // ---------------------------------------
 
 function updateRenderMode() {

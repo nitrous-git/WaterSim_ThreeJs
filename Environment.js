@@ -705,6 +705,18 @@ export class Environment {
         this.simulationBounds.visible = visible;
     }
 
+    setReservoirVisible(visible) {
+
+        if (!this.reservoir) {
+            return;
+        }
+
+        this.reservoir.visible = visible;
+
+        // Shadows are cached because autoUpdate is disabled.
+        this.renderer.shadowMap.needsUpdate = true;
+    }
+
     // ------------------------------------------------------------
     // Lifetime
     // ------------------------------------------------------------
