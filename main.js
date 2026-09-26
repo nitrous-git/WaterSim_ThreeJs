@@ -5,6 +5,7 @@ import GUI from "lil-gui";
 import { SPHSolver } from "./SPHSolver.js";
 import { ParticleRenderer } from "./ParticleRenderer.js";
 import { ScreenSpaceFluidRenderer  } from "./ScreenSpaceFluidRenderer.js";
+import { Environment } from "./Environment.js";
 
 // ------------------------------------------------------------
 // Scene setup
@@ -12,8 +13,10 @@ import { ScreenSpaceFluidRenderer  } from "./ScreenSpaceFluidRenderer.js";
 
 const canvas = document.getElementById("webgl-canvas");
 
+const startupOverlay = document.getElementById("startup-overlay");
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070a);
+//scene.background = new THREE.Color(0x05070a);
 
 const camera = new THREE.PerspectiveCamera(
     60,
@@ -22,13 +25,17 @@ const camera = new THREE.PerspectiveCamera(
     100
 );
 
-camera.position.set(3.5, 1.5, 2.5);
-camera.lookAt(0, 0.0, 0);
+camera.position.set(5.0, 1.8, 2.0); //3.5, 1.5, 2.5
+camera.lookAt(0.0, 0.0, 0.0);
 
 const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true
 });
+
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping; //ACESFilmicToneMapping  NoToneMapping
+//renderer.toneMappingExposure = 1.0;
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -58,12 +65,12 @@ controls.enableDamping = true;
 // Lighting
 // ------------------------------------------------------------
 
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x223344, 1.4);
-scene.add(hemiLight);
-
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-dirLight.position.set(3, 5, 2);
-scene.add(dirLight);
+// const hemiLight = new THREE.HemisphereLight(0xffffff, 0x223344, 1.4);
+// scene.add(hemiLight);
+//
+// const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+// dirLight.position.set(3, 5, 2);
+// scene.add(dirLight);
 
 // ------------------------------------------------------------
 // Simulation size
@@ -206,26 +213,64 @@ const simulationSize = {
 // Container
 // ------------------------------------------------------------
 
+// const boxMin = simulationSize.boxMin;
+// const boxMax = simulationSize.boxMax;
+//
+// createContainerBox(scene, boxMin, boxMax);
+//
+// function createContainerBox(scene, min, max) {
+//     const size = new THREE.Vector3().subVectors(max, min);
+//     const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+//
+//     const boxGeometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+//     const boxEdges = new THREE.EdgesGeometry(boxGeometry);
+//
+//     const boxLines = new THREE.LineSegments(
+//         boxEdges,
+//         new THREE.LineBasicMaterial({ color: 0x335577 })
+//     );
+//
+//     boxLines.position.copy(center);
+//     scene.add(boxLines);
+// }
+
+// ------------------------------------------------------------
+// Environment
+// ------------------------------------------------------------
+
 const boxMin = simulationSize.boxMin;
 const boxMax = simulationSize.boxMax;
 
-createContainerBox(scene, boxMin, boxMax);
+const environmentSettings = {
+    showReservoir: true,
+    showSimulationBounds: false,
 
-function createContainerBox(scene, min, max) {
-    const size = new THREE.Vector3().subVectors(max, min);
-    const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+    environmentMapUrls: [
+        "./assets/environment/daylight/posx.jpg",
+        "./assets/environment/daylight/negx.jpg",
+        "./assets/environment/daylight/posy.jpg",
+        "./assets/environment/daylight/negy.jpg",
+        "./assets/environment/daylight/posz.jpg",
+        "./assets/environment/daylight/negz.jpg"
+    ]
+};
 
-    const boxGeometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-    const boxEdges = new THREE.EdgesGeometry(boxGeometry);
+const environment =
+    new Environment({
+        scene,
+        renderer,
 
-    const boxLines = new THREE.LineSegments(
-        boxEdges,
-        new THREE.LineBasicMaterial({ color: 0x335577 })
-    );
+        boxMin,
+        boxMax,
 
-    boxLines.position.copy(center);
-    scene.add(boxLines);
-}
+        showSimulationBounds: environmentSettings.showSimulationBounds,
+        environmentMapUrls: environmentSettings.environmentMapUrls
+
+    });
+
+// Nothing below this point is initialized until the
+// environment cubemap / PMREM is ready.
+await environment.initialize();
 
 // ------------------------------------------------------------
 // SPH simulation
@@ -273,16 +318,19 @@ const screenSpaceFluidRenderer = new ScreenSpaceFluidRenderer({
 
     // Use a visual radius larger than the physics radius
     // so the projected particles overlap into a surface.
-    particleRadius: solver.h * 0.45,
+    particleRadius: solver.h * 0.48,  //0.45
 
     width: window.innerWidth,
     height: window.innerHeight,
     pixelRatio: 1.0,
     fluidResolutionScale: 0.5,
 
-    blurIterations: 4
+    blurIterations: 4,
+
+    environmentMap: environment.getEnvironmentMap()
 });
 
+screenSpaceFluidRenderer.setLightDirection(environment.getSunDirection());
 screenSpaceFluidRenderer.setFluidResolutionScale(screenSpaceFluidRenderer.fluidResolutionScale);
 // ------------------------------------------------------------
 // Debug panel
@@ -390,6 +438,48 @@ const guiSettings = {
 };
 
 const gui = new GUI();
+
+const environmentFolder =
+    gui.addFolder(
+        "Environment"
+    );
+
+environmentFolder
+    .add(
+        environmentSettings,
+        "showSimulationBounds"
+    )
+    .name(
+        "Simulation Bounds"
+    )
+    .onChange(
+        (visible) => {
+            environment
+                .setSimulationBoundsVisible(
+                    visible
+                );
+        }
+    );
+
+environmentFolder
+    .add(
+        environmentSettings,
+        "showReservoir"
+    )
+    .name(
+        "Reservoir"
+    )
+    .onChange(
+        (visible) => {
+            environment
+                .setReservoirVisible(
+                    visible
+                );
+        }
+    );
+
+environmentFolder.open();
+
 
 /*
 const presets = {
@@ -540,6 +630,8 @@ benchmarkFolder
         "runPairBenchmark"
     )
     .name("Benchmark Pairs");
+
+benchmarkFolder.close();
 // ---------------------------------------
 
 function updateRenderMode() {
@@ -930,6 +1022,8 @@ let previousTime = performance.now();
 let accumulator = 0;
 const maxFrameDt = 0.05;
 
+let startupOverlayRemoved = false;
+
 function animate(currentTime) {
     requestAnimationFrame(animate);
 
@@ -1117,6 +1211,15 @@ function animate(currentTime) {
 
     const renderSubmitMs = performance.now() - renderStart;
     displayedProfile.renderSubmitMs = smoothProfileValue(displayedProfile.renderSubmitMs, renderSubmitMs);
+
+    // Reveal application
+    if (!startupOverlayRemoved) {
+        startupOverlayRemoved = true;
+        requestAnimationFrame(() => {
+            startupOverlay.classList.add("is-hidden");
+        });
+    }
 }
 
 requestAnimationFrame(animate);
+
